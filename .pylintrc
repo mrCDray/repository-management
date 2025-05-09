@@ -1,0 +1,85 @@
+[MAIN]
+# Add any additional Python paths
+init-hook='import sys; sys.path.append(".")'
+# Discover python modules
+recursive=yes
+
+[MESSAGE CONTROL]
+# Disable specific warnings if needed
+disable = 
+    E0401, # Unable too import 'github', 'git', 'git.exc' (import-error)
+    W0718, # Catching too general exception Exception (broad-exception-caught)
+    C0111, # Missing docstring
+    C0301, # Line too long (102/100) (line-too-long)
+    R0901, # Too many ancestors (8/7) (too-many-ancestors)
+    R0903, # Too few public methods
+    C0103, # Invalid name ( for test functions)
+    W0621, # redefined outer nme ( for pytest fixtures)
+    W0212, # Protected access ( for testing private methods)
+    R0801, # Duplicate code ( for similar test)
+    W0221, # Number of parameters was 3 in 'Emitter.increase_indent' and is now 2 in overriding 'IndentDumper.increase_indent' method (arguments-differ)
+    W1203, # Use lazy % formatting in logging functions (logging-fstring-interpolation)
+    W1309, # Using an f-string that does not have any interpolated variables (f-string-without-interpolation)
+
+[BASIC]
+# Good variable names
+good-names=i,j,k,ex,Run,_,fd, fp, id, T,f
+
+# Include a hint for the correct naming format with invalid-name
+include-naming-hint=yes
+
+# Regular expression matching correct function names
+function-rgx=[a-z_][a-z0-9_]{2,60}$test_[a-z0-9_]{2,100}$
+
+[FORMAT]
+# Maximum number of characters on a single line (match black)
+max-line-length=120
+
+[DESIGN]
+# Maximum number of arguments for functions/method
+max-args=8
+# Maximum number of locals for functions/method
+max-locals=25
+# Maximum number of return / yield for function/ method body
+max-returns=10
+# Maximum number of public methods for class
+max-public-methods=20
+# Minimum number of public methods for a class (see R0903).
+min-public-methods=0
+# Maximum number of branch for function / method body
+max-branches=25
+# Maximum number of statements in function / method body
+max-statements=70
+# Maximum number of parents for a class (see R0901).
+max-parents=7
+# Maximum number of attributes for a class (see R0902).
+max-attributes=7
+# Maximum number of boolean expressions in a if statement
+max-bool-expr=5
+# Maximum number of positional arguments in a function R0917
+max-positional-arguments=8
+
+[SIMILARITIES]
+# Maximum lines number of a similarity
+min-similarity-lines=10
+# Ignore comments when computing similarities.
+ignore-comments=yes
+# Ignore docstrings when computing similarities.
+ignore-docstrings=yes
+# Ignore function when computing similarities
+ignore-import=yes
+# Ignore function when computing
+ignore-signatures=yes
+
+[MISCELLANEOUS]
+# List of note tags to take into consideration
+notes=FIXME,XXX,TODO
+
+[TYPECHECK]
+# List of module names for which member attributes should not be checked
+ignored-modules=pytest
+
+[ELIF]
+
+# Maximum number of nested blocks for function / method body
+max-nested-blocks=8
