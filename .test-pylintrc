@@ -1,0 +1,46 @@
+[MAIN]
+# Load the main pylintrc first
+load-plugin=pylint.extensions.docparams,pylint.extensions.docstyle
+
+[MESSAGE CONTROL]
+# Disable specific warnings if needed
+disable =
+    E0401, # Unable too import 'test-team-configuration' (import-error)
+    C0413, # Import should be placed at the top of the module (wrong-import-position)
+    C0111, # missing-docstring
+    R0901, # Too many ancestors (8/7) (too-many-ancestors)
+    R0903, # Too few public methods
+    C0103, # invalid-name
+    W0621, # redefined outer name
+    W0212, # protected access
+    R0801, # duplicate code
+    W0613, # unused argument
+    R0915, # Too many statements
+    R0914, # Too many locals
+    W0612, # Unused variable 'mock_gh' (unused-variable)
+
+[BASIC]
+# Test function names can b longer and more descriptive
+function-rgx=([a-z_][a-z0-9_]{2,60}|test_[a-z0-9_]{2,100})$
+
+# Allow test_ prefix for functions and Test prefix for Classes
+method-rgx=([a-z_][a-z0-9_]{2,60}|test_[a-z0-9_]{2,100})$
+class-rgx=[A_Z_][a-zA-Z0-9]+s|Test[A-Z][a-zA-Z0-9]+s
+
+[FORMAT]
+# Maximum number of characters on a single line (match black)
+max-line-length=120
+
+[DESIGN]
+
+# Test can have more methods and arguments
+# Maximum number of arguments for functions/method
+max-args=10
+# Maximum number of locals for functions/method
+max-locals=20
+# Maximum number of return / yield for function/ method body
+max-returns=6
+
+# Maximum number of public methods for class
+max-public-methods=30
+min-public-methodS=0
