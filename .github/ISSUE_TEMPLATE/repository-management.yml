@@ -1,0 +1,249 @@
+name: Repository Management
+description: Create, update, or manage GitHub repository settings
+title: "[Repository Management] "
+labels: ["repository-management"]
+assignees:
+  - octocat
+
+body:
+  - type: dropdown
+    id: action
+    attributes:
+      label: Action
+      description: What action would you like to perform?
+      options:
+        - create
+        - update
+        - manage-branch-rules
+    validations:
+      required: true
+
+  - type: input
+    id: repository_name
+    attributes:
+      label: Repository Name
+      description: Name of the repository (must be lowercase with hyphens)
+      placeholder: my-example-repo
+    validations:
+      required: true
+
+  - type: dropdown
+    id: visibility
+    attributes:
+      label: Repository Visibility
+      description: Visibility of the repository
+      options:
+        - internal
+        - private
+    validations:
+      required: false
+
+  - type: textarea
+    id: topics
+    attributes:
+      label: Topics
+      description: List of topics for the repository (one per line)
+      placeholder: |
+        - topic1
+        - topic2
+    validations:
+      required: false
+
+  - type: dropdown
+    id: has_issues
+    attributes:
+      label: Enable Issues
+      description: Enable issues for the repository
+      options:
+        - "true"
+        - "false"
+    validations:
+      required: false
+
+  - type: dropdown
+    id: has_projects
+    attributes:
+      label: Enable Projects
+      description: Enable projects for the repository
+      options:
+        - "true"
+        - "false"
+    validations:
+      required: false
+
+  - type: dropdown
+    id: has_wiki
+    attributes:
+      label: Enable Wiki
+      description: Enable wiki for the repository
+      options:
+        - "true"
+        - "false"
+    validations:
+      required: false
+
+  - type: dropdown
+    id: allow_squash_merge
+    attributes:
+      label: Allow Squash Merge
+      options:
+        - "true"
+        - "false"
+    validations:
+      required: false
+
+  - type: dropdown
+    id: allow_merge_commit
+    attributes:
+      label: Allow Merge Commit
+      options:
+        - "true"
+        - "false"
+    validations:
+      required: false
+
+  - type: dropdown
+    id: allow_rebase_merge
+    attributes:
+      label: Allow Rebase Merge
+      options:
+        - "true"
+        - "false"
+    validations:
+      required: false
+
+  - type: dropdown
+    id: allow_auto_merge
+    attributes:
+      label: Allow Auto Merge
+      options:
+        - "true"
+        - "false"
+    validations:
+      required: false
+
+  - type: dropdown
+    id: delete_branch_on_merge
+    attributes:
+      label: Delete Branch on Merge
+      options:
+        - "true"
+        - "false"
+    validations:
+      required: false
+
+  - type: dropdown
+    id: enable_vulnerability_alerts
+    attributes:
+      label: Enable Vulnerability Alerts
+      options:
+        - "true"
+        - "false"
+    validations:
+      required: false
+
+  - type: dropdown
+    id: enable_automated_security_fixes
+    attributes:
+      label: Enable Automated Security Fixes
+      options:
+        - "true"
+        - "false"
+    validations:
+      required: false
+
+  - type: markdown
+    attributes:
+      value: |
+        ## Branch Protection Rules
+        The following fields are only needed when managing branch rules.
+
+  - type: input
+    id: branch_name
+    attributes:
+      label: Branch Name
+      description: Name of branch to protect (e.g., main, develop, or feature/* for pattern)
+      placeholder: main
+    validations:
+      required: false
+
+  - type: dropdown
+    id: branch_rule_type
+    attributes:
+      label: Branch Rule Type
+      description: The type of branch rule to apply
+      options:
+        - standard-protection
+        - strict-protection
+        - custom
+    validations:
+      required: false
+
+  - type: dropdown
+    id: require_approvals
+    attributes:
+      label: Require Pull Request Approvals
+      options:
+        - "0"
+        - "1"
+        - "2"
+        - "3"
+    validations:
+      required: false
+
+  - type: dropdown
+    id: require_code_owner_review
+    attributes:
+      label: Require Code Owner Review
+      options:
+        - "true"
+        - "false"
+    validations:
+      required: false
+
+  - type: dropdown
+    id: dismiss_stale_reviews
+    attributes:
+      label: Dismiss Stale Reviews
+      options:
+        - "true"
+        - "false"
+    validations:
+      required: false
+
+  - type: dropdown
+    id: require_status_checks
+    attributes:
+      label: Require Status Checks
+      options:
+        - "true"
+        - "false"
+    validations:
+      required: false
+
+  - type: textarea
+    id: required_status_check_list
+    attributes:
+      label: Required Status Checks
+      description: List of required status checks (one per line)
+      placeholder: |
+        - build
+        - test
+        - security-scan
+    validations:
+      required: false
+
+  - type: dropdown
+    id: restrict_push_access
+    attributes:
+      label: Restrict Push Access
+      options:
+        - "true"
+        - "false"
+    validations:
+      required: false
+
+  - type: markdown
+    attributes:
+      value: |
+        **Note:** Branch protection rules are automatically applied based on the default configuration.
