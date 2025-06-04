@@ -1,0 +1,50 @@
+name: Sync GitHub Repositories
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'repositories/*/repository.yml'
+  workflow_dispatch:
+    inputs:
+      repository:
+        description: 'Repository to sync (leave empty to sync all repositories)'
+        required: false
+        default: ''
+
+jobs:
+  sync-repositories:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    environment:
+      name: cloud-platform
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+          
+      - name: Generate GitHub App Token
+        uses: actions/create-github-app-token@v2
+        id: app-token
+        with:
+          app-id: ${{ vars.APP_ID }}
+          private-key: ${{ secrets.APP_KEY }}
+          owner: ${{ github.repository_owner }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install PyYAML requests PyGithub
+
+      - name: Sync GitHub repositories
+        run: python scripts/sync_github_repositories.py ${{ github.event.inputs.repository != '' && format('--repo {0}', github.event.inputs.repository) || '' }}
+        env:
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+          GITHUB_ORG: ${{ github.repository_owner }}
