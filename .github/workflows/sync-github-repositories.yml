@@ -19,7 +19,7 @@ jobs:
     permissions:
       contents: read
     environment:
-      name: cloud-platform
+      name: test-env
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
