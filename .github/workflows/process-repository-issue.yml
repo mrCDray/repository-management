@@ -11,6 +11,7 @@ jobs:
     permissions:
       contents: write
       issues: write
+      repository-projects: write
     environment: 
       name: cloud-platform
     steps:
@@ -33,11 +34,13 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install PyYAML requests
+          pip install PyYAML requests PyGithub
 
       - name: Process repository issue
         id: process-issue
-        run: python scripts/process_repository_issue.py
+        run: |
+          output=$(python scripts/process_repository_issue.py)
+          echo "result=$output" >> $GITHUB_OUTPUT
         env:
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
           GITHUB_ORG: ${{ github.repository_owner }}
@@ -45,7 +48,43 @@ jobs:
           ISSUE_BODY: ${{ toJSON(github.event.issue.body) }}
           REPO: ${{ github.repository }}
 
+      - name: Comment on issue with result
+        run: |
+          # Store the raw JSON in a file to avoid quoting issues
+          echo '${{ steps.process-issue.outputs.result }}' > result.json
+          
+          # Use jq with the file input instead of echo piping
+          result=$(jq -r '.message' result.json)
+          status=$(jq -r '.status' result.json)
+          
+          # Check for ruleset errors if available
+          ruleset_errors=""
+          if jq -e '.ruleset_errors' result.json > /dev/null 2>&1; then
+            ruleset_errors=$(jq -r '.ruleset_errors | join("\n- ")' result.json)
+          fi
+          
+          if [ "$status" == "success" ]; then
+            comment="✅ **Success:** $result"
+            
+            # Add ruleset warnings if there were any
+            if [ -n "$ruleset_errors" ]; then
+              comment="$comment\n\n⚠️ **Ruleset Warnings:**\n- $ruleset_errors"
+            fi
+          else
+            comment="❌ **Error:** $result"
+            
+            # Add ruleset errors if there were any
+            if [ -n "$ruleset_errors" ]; then
+              comment="$comment\n\n**Ruleset Errors:**\n- $ruleset_errors"
+            fi
+          fi
+          
+          gh issue comment ${{ github.event.issue.number }} --body "$comment"
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+
       - name: Commit changes if necessary
+        id: commit-changes
         run: |
           git config --global user.name "GitHub Actions"
           git config --global user.email "actions@github.com"
@@ -63,6 +102,8 @@ jobs:
             exit 0
           fi
           
-          echo "Changes detected, committing..."
+          echo "Changes detected, committing..."          
           git commit -m "Update repository configuration from issue #${{ github.event.issue.number }}"
           git push
+        env:
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
