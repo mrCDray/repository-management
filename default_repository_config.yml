@@ -1,16 +1,18 @@
-
- #This id the default configuration settings file is used to manage the repository in the organization
+#This id the default configuration settings file is used to manage the repository in the organization
 repository:  
   # The name of the repository to be replaced with actual name passed in the action and create config file if one dose not already exist
   name: [repository_name]
+  # The description of the repository text created in issue to update the repository description.
+  description: ''
   # Can be internal (recommended) or private. With GitHub Enterprise Cloud
   visibility: internal
   # A list of topics to set on the repository - can alternatively set like this: [github, probot, new-topic, another-topic, topic-12]
   topics: []
   # General repository settings
   has_issues: true
-  has_projects: true
+  has_projects: false
   has_wiki: true
+  has_discussions: false
   allow_squash_merge: true
   allow_merge_commit: true
   allow_rebase_merge: true
@@ -23,91 +25,319 @@ repository:
     enableVulnerabilityAlerts: true
     enableAutomatedSecurityFixes: true
   
-  # Branch and tag rulesets
-  rulesets:
-    # Main branch protection
-    - name: main-branch-protection
-      target: branch
-      enforcement: active
-      conditions:
-        ref_name:
-          include: ["refs/heads/main", "refs/heads/master"]
-          exclude: []
-      rules:
-        - type: pull_request
-          parameters:
-            dismiss_stale_reviews_on_push: true
-            require_code_owner_review: true
-            require_last_push_approval: true
-            required_approving_review_count: 2
-            required_review_thread_resolution: true
-        - type: deletion    
-        - type: required_status_checks
-          parameters:
-            strict_required_status_checks_policy: true
-            required_status_checks:
-              - context: CodeQL
-              - context: security-scan
-              
-        - type: required_linear_history
-        - type: required_signatures
+  # Alternative branch strategy configurations
+  branch_strategies:
+    # GitHub Flow Branch Strategy Rules
+    github-flow:
+      rulesets:
+        - name: github-flow-main-protection
+          target: branch
+          enforcement: active
+          conditions:
+            ref_name:
+              include: ["refs/heads/main"]
+              exclude: []
+          rules:
+            - type: pull_request
+              parameters:
+                dismiss_stale_reviews_on_push: true
+                require_code_owner_review: true
+                required_approving_review_count: 1
+                required_review_thread_resolution: true
+            - type: deletion
+            - type: required_status_checks
+              parameters:
+                strict_required_status_checks_policy: true
+                required_status_checks:
+                  - context: CodeQL
+        
+        - name: github-flow-feature-protection
+          target: branch
+          enforcement: active
+          conditions:
+            ref_name:
+              include: ["refs/heads/feature/*"]
+              exclude: []
+          rules:
+            - type: branch_name_pattern
+              parameters:
+                pattern: "^feature/[A-Za-z0-9-]+$"
+                operator: "regex"
     
-    # Development branch protection
-    - name: develop-branch-protection
-      target: branch
-      enforcement: active
-      conditions:
-        ref_name:
-          include: ["refs/heads/develop"]
-          exclude: []
-      rules:
-        - type: deletion
-        - type: pull_request
-          parameters:
-            dismiss_stale_reviews_on_push: true
-            require_code_owner_review: true
-            require_last_push_approval: true
-            required_approving_review_count: 1
-            required_review_thread_resolution: true
-                
-    # Feature branch protection
-    - name: feature-branch-protection
-      target: branch
-      enforcement: active
-      conditions:
-        ref_name:
-          include: ["refs/heads/feature/*"]
-          exclude: []
-      rules:
-        - type: pull_request
-          parameters:
-            dismiss_stale_reviews_on_push: true
-            require_code_owner_review: true
-            required_approving_review_count: 1
-            required_review_thread_resolution: true
-        # Feature naming pattern convention
-        - type: branch_name_pattern
-          parameters:
-            pattern: "^feature/[A-Z][A-Za-z0-9-]+$"
-            operator: "regex"
+    # Git Flow Branch Strategy Rules Default settings
+    git-flow:
+      rulesets:
+        - name: gitflow-main-protection
+          target: branch
+          enforcement: active
+          conditions:
+            ref_name:
+              include: ["refs/heads/main", "refs/heads/master"]
+              exclude: []
+          rules:
+            - type: pull_request
+              parameters:
+                dismiss_stale_reviews_on_push: true
+                require_code_owner_review: true
+                required_approving_review_count: 2
+                required_review_thread_resolution: true
+            - type: deletion
+            - type: required_signatures
+        
+        - name: gitflow-develop-protection
+          target: branch
+          enforcement: active
+          conditions:
+            ref_name:
+              include: ["refs/heads/develop"]
+              exclude: []
+          rules:
+            - type: pull_request
+              parameters:
+                dismiss_stale_reviews_on_push: true
+                require_code_owner_review: true
+                required_approving_review_count: 1
+                required_review_thread_resolution: true
+            - type: deletion
+        
+        - name: gitflow-release-protection
+          target: branch
+          enforcement: active
+          conditions:
+            ref_name:
+              include: ["refs/heads/release/*"]
+              exclude: []
+          rules:
+            - type: pull_request
+              parameters:
+                dismiss_stale_reviews_on_push: true
+                require_code_owner_review: true
+                required_approving_review_count: 1
+                required_review_thread_resolution: true
+            - type: branch_name_pattern
+              parameters:
+                pattern: "^release/[0-9]+\\.[0-9]+\\.[0-9]+$"
+                operator: "regex"
+        
+        - name: gitflow-feature-protection
+          target: branch
+          enforcement: active
+          conditions:
+            ref_name:
+              include: ["refs/heads/feature/*"]
+              exclude: []
+          rules:
+            - type: branch_name_pattern
+              parameters:
+                pattern: "^feature/[A-Za-z0-9-]+$"
+                operator: "regex"
+        
+        - name: gitflow-hotfix-protection
+          target: branch
+          enforcement: active
+          conditions:
+            ref_name:
+              include: ["refs/heads/hotfix/*"]
+              exclude: []
+          rules:
+            - type: pull_request
+              parameters:
+                dismiss_stale_reviews_on_push: true
+                require_code_owner_review: true
+                required_approving_review_count: 1
+                required_review_thread_resolution: true
+            - type: branch_name_pattern
+              parameters:
+                pattern: "^hotfix/[0-9]+\\.[0-9]+\\.[0-9]+$"
+                operator: "regex"
     
-    # Hotfix branch protection
-    - name: hotfix-branch-protection
-      target: branch
-      enforcement: active
-      conditions:
-        ref_name:
-          include: ["refs/heads/hotfix/*"]
-          exclude: []
-      rules:
-        - type: pull_request
-          parameters:
-            dismiss_stale_reviews_on_push: true
-            require_code_owner_review: true
-            required_approving_review_count: 2
-            required_review_thread_resolution: true
-        # Hotfix naming pattern convention    
-        - type: branch_name_pattern
-          parameters:
-            pattern: "^hotfix/[A-Z]+-[0-9]+$"
-            operator: "regex"
+    # Trunk-Based Development Strategy Rules
+    trunk-based:
+      rulesets:
+        - name: trunk-based-main-protection
+          target: branch
+          enforcement: active
+          conditions:
+            ref_name:
+              include: ["refs/heads/trunk", "refs/heads/main"]
+              exclude: []
+          rules:
+            - type: pull_request
+              parameters:
+                dismiss_stale_reviews_on_push: true
+                require_code_owner_review: true
+                required_approving_review_count: 1
+                required_review_thread_resolution: true
+            - type: deletion
+            - type: required_status_checks
+              parameters:
+                strict_required_status_checks_policy: true
+                required_status_checks:
+                  - context: CodeQL
+            - type: required_linear_history
+        
+        - name: trunk-based-feature-protection
+          target: branch
+          enforcement: active
+          conditions:
+            ref_name:
+              include: ["refs/heads/fb/*"]
+              exclude: []
+          rules:
+            - type: branch_name_pattern
+              parameters:
+                pattern: "^fb/[A-Za-z0-9-]+$"
+                operator: "regex"
+    
+    # Feature Branch Workflow Strategy Rules
+    feature-branch:
+      rulesets:
+        - name: feature-workflow-main-protection
+          target: branch
+          enforcement: active
+          conditions:
+            ref_name:
+              include: ["refs/heads/main"]
+              exclude: []
+          rules:
+            - type: pull_request
+              parameters:
+                dismiss_stale_reviews_on_push: true
+                require_code_owner_review: true
+                required_approving_review_count: 2
+                required_review_thread_resolution: true
+            - type: deletion
+            - type: required_status_checks
+              parameters:
+                strict_required_status_checks_policy: true
+                required_status_checks:
+                  - context: CodeQL
+        
+        - name: feature-workflow-branches
+          target: branch
+          enforcement: active
+          conditions:
+            ref_name:
+              include: ["refs/heads/*"]
+              exclude: ["refs/heads/main"]
+          rules:
+            - type: branch_name_pattern
+              parameters:
+                pattern: "^(feature|bugfix|improvement|library|prerelease|release|hotfix)/[A-Za-z0-9-]+$"
+                operator: "regex"
+    
+    # GitLab Flow Strategy Rules
+    gitlab-flow:
+      rulesets:
+        - name: gitlab-flow-main-protection
+          target: branch
+          enforcement: active
+          conditions:
+            ref_name:
+              include: ["refs/heads/main"]
+              exclude: []
+          rules:
+            - type: pull_request
+              parameters:
+                dismiss_stale_reviews_on_push: true
+                require_code_owner_review: true
+                required_approving_review_count: 1
+                required_review_thread_resolution: true
+            - type: deletion
+        
+        - name: gitlab-flow-production-protection
+          target: branch
+          enforcement: active
+          conditions:
+            ref_name:
+              include: ["refs/heads/production"]
+              exclude: []
+          rules:
+            - type: pull_request
+              parameters:
+                dismiss_stale_reviews_on_push: true
+                require_code_owner_review: true
+                required_approving_review_count: 2
+                required_review_thread_resolution: true
+            - type: deletion
+            - type: required_signatures
+        
+        - name: gitlab-flow-environment-protection
+          target: branch
+          enforcement: active
+          conditions:
+            ref_name:
+              include: ["refs/heads/staging", "refs/heads/pre-production"]
+              exclude: []
+          rules:
+            - type: pull_request
+              parameters:
+                dismiss_stale_reviews_on_push: true
+                require_code_owner_review: true
+                required_approving_review_count: 1
+                required_review_thread_resolution: true
+        
+        - name: gitlab-flow-feature-protection
+          target: branch
+          enforcement: active
+          conditions:
+            ref_name:
+              include: ["refs/heads/feature/*"]
+              exclude: []
+          rules:
+            - type: branch_name_pattern
+              parameters:
+                pattern: "^feature/[A-Za-z0-9-]+$"
+                operator: "regex"
+    
+    # Release Flow Strategy Rules
+    release-flow:
+      rulesets:
+        - name: release-flow-main-protection
+          target: branch
+          enforcement: active
+          conditions:
+            ref_name:
+              include: ["refs/heads/main"]
+              exclude: []
+          rules:
+            - type: pull_request
+              parameters:
+                dismiss_stale_reviews_on_push: true
+                require_code_owner_review: true
+                required_approving_review_count: 2
+                required_review_thread_resolution: true
+            - type: deletion
+            - type: required_signatures
+        
+        - name: release-flow-release-protection
+          target: branch
+          enforcement: active
+          conditions:
+            ref_name:
+              include: ["refs/heads/release/*"]
+              exclude: []
+          rules:
+            - type: pull_request
+              parameters:
+                dismiss_stale_reviews_on_push: true
+                require_code_owner_review: true
+                required_approving_review_count: 2
+                required_review_thread_resolution: true
+            - type: branch_name_pattern
+              parameters:
+                pattern: "^release/[0-9]{8}\\.[0-9]+$"
+                operator: "regex"
+        
+        - name: release-flow-feature-protection
+          target: branch
+          enforcement: active
+          conditions:
+            ref_name:
+              include: ["refs/heads/feature/*"]
+              exclude: []
+          rules:
+            - type: branch_name_pattern
+              parameters:
+                pattern: "^feature/[A-Za-z0-9-]+$"
+                operator: "regex"
