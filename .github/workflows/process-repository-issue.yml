@@ -13,7 +13,7 @@ jobs:
       issues: write
       repository-projects: write
     environment: 
-      name: cloud-platform
+      name: test-env
     steps:
       - uses: actions/create-github-app-token@v2
         id: app-token
