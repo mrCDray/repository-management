@@ -14,7 +14,7 @@ body:
       options:
         - create
         - update
-        - manage-branch-rules
+        - remove
     validations:
       required: true
 
@@ -27,11 +27,30 @@ body:
     validations:
       required: true
 
+  - type: textarea
+    id: description
+    attributes:
+      label: Repository Description
+      description: Description of the repository (for create or update actions)
+      placeholder: A brief description of the repository purpose and contents
+    validations:
+      required: false
+
+  - type: dropdown
+    id: template_repository
+    attributes:
+      label: Template Repository
+      description: Select a template repository to use as a starting point (for create action only)
+      options:
+        - template-repo
+    validations:
+      required: false
+
   - type: dropdown
     id: visibility
     attributes:
       label: Repository Visibility
-      description: Visibility of the repository
+      description: Visibility of the repository (for create or update actions)
       options:
         - internal
         - private
@@ -42,17 +61,23 @@ body:
     id: topics
     attributes:
       label: Topics
-      description: List of topics for the repository (one per line)
+      description: List of topics for the repository (one per line). For remove action, these topics will be removed.
       placeholder: |
         - topic1
         - topic2
     validations:
       required: false
+  - type: markdown
+    attributes:
+      value: | 
+        ## Optional selections
+        If not changed the default configurations will be used. 
+        These can be changed after creation using the action update in this issue template.
 
   - type: dropdown
     id: has_issues
     attributes:
-      label: Enable Issues
+      label: Has Issues
       description: Enable issues for the repository
       options:
         - "true"
@@ -63,8 +88,19 @@ body:
   - type: dropdown
     id: has_projects
     attributes:
-      label: Enable Projects
+      label: Has Projects
       description: Enable projects for the repository
+      options:
+        - "true"
+        - "false"
+    validations:
+      required: false
+
+  - type: dropdown
+    id: has_discussions
+    attributes:
+      label: Has Discussions
+      description: Enable discussions for the repository
       options:
         - "true"
         - "false"
@@ -74,7 +110,7 @@ body:
   - type: dropdown
     id: has_wiki
     attributes:
-      label: Enable Wiki
+      label: Has Wiki
       description: Enable wiki for the repository
       options:
         - "true"
@@ -155,15 +191,73 @@ body:
   - type: markdown
     attributes:
       value: |
-        ## Branch Protection Rules
-        The following fields are only needed when managing branch rules.
+        ## Branch Strategy Selection
+        Select a predefined branch strategy or use custom branch protection rules below.
+        Each strategy comes with predefined branch protection rules based on the workflow pattern.
+
+        When using certain branch strategies, default branches will be automatically created:
+        - Git Flow: `develop` branch created from `main`
+        - GitLab Flow: `production` and `staging` branches created from `main`
+        - Trunk-based: `trunk` branch if `main` doesn't exist
+
+  - type: dropdown
+    id: branch_strategy
+    attributes:
+      label: Branch Strategy
+      description: Select a branch workflow strategy to apply to this repository default will be git-flow
+      options:
+        - git-flow
+        - github-flow
+        - trunk-based
+        - feature-branch
+        - gitlab-flow
+        - release-flow
+        - custom
+    validations:
+      required: false
+
+  - type: markdown
+    attributes:
+      value: |
+        ## Custom Branch Protection Rules
+        **The following fields are only used when "custom" is selected as the Branch Strategy above.**
+        
+        If you've selected any predefined branch strategy other than "custom", these settings will be ignored.
+        You can use this section to:
+        - Create new branch rules when using the "custom" strategy
+        - Remove specific branch rules when using the "remove" action
+        - Update specific branch rules when using the "update" action with "custom" strategy
 
   - type: input
     id: branch_name
     attributes:
-      label: Branch Name
-      description: Name of branch to protect (e.g., main, develop, or feature/* for pattern)
-      placeholder: main
+      label: Branch Protection Rule Name
+      description: Name for the branch protection rule (e.g., main-branch-protection, develop-branch-protection)
+      placeholder: main-branch-protection
+    validations:
+      required: false
+
+  - type: textarea
+    id: branch_includes
+    attributes:
+      label: Branch Includes
+      description: List of branches or patterns to include for protection (automatically prefixed with refs/heads/)
+      placeholder: |
+        - main
+        - develop
+        - feature/*
+        - hotfix/*
+    validations:
+      required: false
+      
+  - type: textarea
+    id: branch_excludes
+    attributes:
+      label: Branch Excludes
+      description: List of branches or patterns to exclude from protection (automatically prefixed with refs/heads/)
+      placeholder: |
+        - feature/wip-*
+        - feature/draft-*
     validations:
       required: false
 
@@ -183,6 +277,7 @@ body:
     id: require_approvals
     attributes:
       label: Require Pull Request Approvals
+      description: Number of approvals required for pull requests (for branch protection)
       options:
         - "0"
         - "1"
@@ -195,6 +290,7 @@ body:
     id: require_code_owner_review
     attributes:
       label: Require Code Owner Review
+      description: Require review from code owners (for branch protection)
       options:
         - "true"
         - "false"
@@ -205,6 +301,7 @@ body:
     id: dismiss_stale_reviews
     attributes:
       label: Dismiss Stale Reviews
+      description: Dismiss approvals when new commits are pushed (for branch protection)
       options:
         - "true"
         - "false"
@@ -224,7 +321,7 @@ body:
   - type: textarea
     id: required_status_check_list
     attributes:
-      label: Required Status Checks
+      label: Required Status Checks List
       description: List of required status checks (one per line)
       placeholder: |
         - build
@@ -242,8 +339,3 @@ body:
         - "false"
     validations:
       required: false
-
-  - type: markdown
-    attributes:
-      value: |
-        **Note:** Branch protection rules are automatically applied based on the default configuration.
