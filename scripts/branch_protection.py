@@ -1,364 +1,727 @@
 #!/usr/bin/env python3
 
+import os
+import json
 import logging
-import re
+import sys
 from typing import Dict, Any, List
+import yaml
+from sync_github_repositories import GitHubRepositoryManager
+
+# Import utilities from the new modules
+from repository_utils import (
+    load_default_config,
+    create_repository_config,
+    get_existing_config,
+    update_basic_settings,
+    update_boolean_settings,
+    update_security_settings,
+    validate_repository_name,
+    process_sync_results,
+    get_boolean_setting,
+    to_boolean,
+)
+
+from branch_protection import (
+    create_branch_protection_ruleset,
+    parse_list_section,
+    select_branch_strategy_ruleset,
+    update_rulesets,
+)
 
 # Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+)
 logger = logging.getLogger("repository_processor")
 
 
-def parse_list_section(content: str) -> List[str]:
-    """Parse a list section (topics or required status checks)."""
-    items = []
+def process_section(section_name: str, content: List[str]) -> Any:
+    """Process a single section from the issue body and return its value."""
     if not content:
-        return items
+        return None
 
-    # Check if content is a YAML-style list with hyphens
-    if any(line.strip().startswith("- ") for line in content.split("\n")):
-        for line in content.split("\n"):
-            line = line.strip()
-            if line.startswith("- "):
-                item = line[2:].strip()
-                if item:
-                    items.append(item)
+    section_value = "\n".join(content).strip()
+    if not section_value:
+        return None
+
+    # Skip "_No response_" values which indicate no changes requested
+    if section_value == "_No response_":
+        logger.info(f"Ignoring '{section_name}' with value '_No response_'")
+        return None
+
+    # Handle different field types
+    if section_name in ("topics", "required_status_check_list", "branch_includes", "branch_excludes"):
+        return parse_list_section(section_value)
+
+    # Convert true/false strings to booleans only if exact match
+    if section_value.lower() == "true":
+        return True
+    if section_value.lower() == "false":
+        return False
+    if section_value.lower() in ("none", ""):
+        return None
+
+    # Handle special case for rulesets in JSON format
+    if section_name == "rulesets" and section_value.startswith("[") and section_value.endswith("]"):
+        try:
+            return json.loads(section_value)
+        except json.JSONDecodeError:
+            logger.warning(f"Failed to parse rulesets JSON: {section_value}")
+            # Try to recover by treating as a YAML list
+            try:
+                return yaml.safe_load(section_value)
+            except Exception:
+                logger.error(f"Also failed to parse as YAML: {section_value}")
+
+    return section_value
+
+
+def parse_issue_body(body: str) -> Dict[str, Any]:
+    """Parse the issue body to extract input values."""
+    logger.info("Parsing issue body")
+
+    # Handle escaped quotes in JSON string (common when using toJSON in GitHub Actions)
+    if body.startswith('"') and body.endswith('"'):
+        try:
+            body = json.loads(body)
+            logger.info("Successfully unescaped JSON body")
+        except json.JSONDecodeError:
+            logger.warning("Failed to unescape JSON body, using raw string")
+
+    lines = body.split("\n")
+    logger.debug(f"Issue body has {len(lines)} lines")
+
+    result = {}
+    current_section = None
+    current_content = []
+
+    for line in lines:
+        line = line.rstrip()
+
+        # GitHub issue forms use ### for field labels
+        if line.startswith("### "):
+            # Save previous section if any
+            if current_section and current_content:
+                processed_value = process_section(current_section, current_content)
+                if processed_value is not None:
+                    result[current_section] = processed_value
+
+            # Start new section
+            current_section = line[4:].lower().replace(" ", "_")
+            current_content = []
+        elif current_section:
+            # Add line to current section content if not empty
+            if line.strip():
+                current_content.append(line)
+
+    # Process final section
+    if current_section and current_content:
+        processed_value = process_section(current_section, current_content)
+        if processed_value is not None:
+            result[current_section] = processed_value
+
+    # If topics or required_status_check_list is empty, remove it
+    for key in ["topics", "required_status_check_list", "branch_includes", "branch_excludes"]:
+        if key in result and not result[key]:
+            del result[key]
+
+    # Log all sections found in the issue body for debugging
+    logger.info(f"Sections found in issue body: {list(result.keys())}")
+
+    # Special logging for description field to verify its presence and value
+    if "description" in result:
+        logger.info(f"Found description field with value: '{result['description']}'")
+    elif "repository_description" in result:
+        logger.info(f"Found repository_description field with value: '{result['repository_description']}'")
     else:
-        # Handle comma-separated or space-separated items
-        for item in re.split(r"[,\n]", content):
-            cleaned_item = item.strip()
-            if cleaned_item:
-                items.append(cleaned_item)
+        logger.warning("No description or repository_description field found in issue body")
 
-    return items
+    # Special handling for boolean fields
+    if "do_not_require_status_checks_on_creation" in result:
+        result["do_not_require_status_checks_on_creation"] = to_boolean(
+            result["do_not_require_status_checks_on_creation"]
+        )
 
+    # Special handling for branch protection rules section
+    if "branch_name" in result and "branch_rule_type" in result:
+        branch_name = result.get("branch_name")
+        branch_rule_type = result.get("branch_rule_type")
+        branch_includes = result.get("branch_includes", [])
+        branch_excludes = result.get("branch_excludes", [])
 
-def format_branch_references(branch_targets: List[str]) -> List[str]:
-    """
-    Format branch references to ensure they have the proper refs/heads/ prefix.
+        if branch_name and branch_rule_type and (branch_includes or branch_excludes):
+            # Create a ruleset based on the branch protection information
+            ruleset = create_branch_protection_ruleset(
+                branch_name, branch_rule_type, branch_includes, branch_excludes, result
+            )
 
-    Args:
-        branch_targets: List of branch names or patterns
+            # Add to rulesets or create the rulesets array
+            if "rulesets" not in result:
+                result["rulesets"] = []
+            result["rulesets"].append(ruleset)
 
-    Returns:
-        List of properly formatted branch references
-    """
-    formatted_refs = []
+            logger.info(f"Created branch protection ruleset: {ruleset['name']}")
 
-    # Check if the list looks like it might be a single string that was mistakenly split
-    if len(branch_targets) > 3 and all(len(t.strip()) <= 1 for t in branch_targets):
-        logger.warning("Detected incorrectly split branch name - attempting to reconstruct")
-        reconstructed = "".join(branch_targets).replace(" ", "")
-        if reconstructed:
-            if not reconstructed.startswith("refs/"):
-                reconstructed = f"refs/heads/{reconstructed}"
-            formatted_refs.append(reconstructed)
-        return formatted_refs
+    # Apply field mappings
+    apply_field_mappings(result)
 
-    # Process normal branch targets
-    for target in branch_targets:
-        if not target:
-            continue
-
-        # Keep if already formatted
-        if target.startswith("refs/"):
-            formatted_refs.append(target)
-        else:
-            # Add prefix for branch names
-            formatted_refs.append(f"refs/heads/{target}")
-
-    return formatted_refs
+    logger.info(f"Parsed issue data: {json.dumps(result, default=str)}")
+    return result
 
 
-def create_branch_protection_ruleset(
-    name: str, rule_type: str, includes: List[str], excludes: List[str], issue_data: Dict[str, Any]
-) -> Dict[str, Any]:
-    """Create a branch protection ruleset based on issue form data."""
-    # Format branch references to ensure they have the proper prefix
-    formatted_includes = format_branch_references(includes) if includes else []
-    formatted_excludes = format_branch_references(excludes) if excludes else []
-
-    # Ensure we have at least one include pattern if nothing is specified
-    if not formatted_includes:
-        formatted_includes = ["refs/heads/main"]
-        logger.info("No include patterns specified, defaulting to 'refs/heads/main'")
-
-    ruleset = {
-        "name": name,
-        "target": "branch",
-        "enforcement": "active",
-        "conditions": {"ref_name": {"include": formatted_includes, "exclude": formatted_excludes}},
-        "rules": [],
+def apply_field_mappings(result: Dict[str, Any]) -> None:
+    """Apply field mappings and transformations to the parsed data."""
+    # Map form fields to expected fields if needed
+    field_mapping = {
+        "require_approvals": "required_approving_review_count",
+        "repository_visibility": "visibility",
+        "template_repository": "template",
+        "repository_description": "description",  # Add mapping for repository_description
+        "enable_vulnerability_alerts": "_security_vulnerability_alerts",
+        "enable_automated_security_fixes": "_security_automated_fixes",
+        "branch_protection_rule_name": "branch_name",
+        "require_pull_request_approvals": "require_approvals",
+        "allow_initial_branch_creation_without_status_checks": "do_not_require_status_checks_on_creation",
     }
 
-    # Add rules based on the protection type
-    rules = []
+    for old_key, new_key in field_mapping.items():
+        if old_key in result and new_key not in result:
+            result[new_key] = result[old_key]
+            # Keep the original key for reference
+            if not old_key.startswith("_"):  # Don't remove special mapping keys
+                del result[old_key]
 
-    # Required status checks
-    if issue_data.get("require_status_checks") is True:
-        # Parse the status checks list to ensure it's in the correct format
-        status_checks = []
-        if "required_status_checks_list" in issue_data:
-            if isinstance(issue_data["required_status_checks_list"], str):
-                # Parse the list but keep the proper format
-                raw_checks = parse_list_section(issue_data["required_status_checks_list"])
-                status_checks = [{"context": check} for check in raw_checks]
-            elif isinstance(issue_data["required_status_checks_list"], list):
-                # Format list items as context objects
-                status_checks = [
-                    {"context": check} if isinstance(check, str) else check
-                    for check in issue_data["required_status_checks_list"]
-                ]
-
-        rules.append(
-            {
-                "type": "required_status_checks",
-                "parameters": {
-                    "strict_required_status_checks_policy": True,
-                    "do_not_enforce_on_create": issue_data.get("do_not_require_status_checks_on_creation", False),
-                    "required_status_checks": status_checks,
-                },
-            }
-        )
-    # Required pull request reviews
-    if "require_approvals" in issue_data and issue_data["require_approvals"] not in ["0", 0]:
-        pr_rule = {
-            "type": "pull_request",
-            "parameters": {
-                "dismiss_stale_reviews_on_push": issue_data.get("dismiss_stale_reviews", False),
-                "require_code_owner_review": issue_data.get("require_code_owner_review", False),
-                "require_last_push_approval": True,
-                "required_approving_review_count": int(issue_data["require_approvals"]),
-                "required_review_thread_resolution": True,
-            },
-        }
-        rules.append(pr_rule)
-
-    # Additional rules based on protection level
-    if rule_type == "standard-protection":
-        # Standard protection includes basic PR review rules if not already added
-        if not any(rule.get("type") == "pull_request" for rule in rules):
-            rules.append(
-                {
-                    "type": "pull_request",
-                    "parameters": {
-                        "required_approving_review_count": 1,
-                        "dismiss_stale_reviews_on_push": True,
-                        "require_code_owner_review": False,
-                    },
-                }
-            )
-        # Add deletion protection
-        rules.append({"type": "deletion"})
-    elif rule_type == "strict-protection":
-        # Strict protection includes enhanced PR rules
-        if not any(rule.get("type") == "pull_request" for rule in rules):
-            rules.append(
-                {
-                    "type": "pull_request",
-                    "parameters": {
-                        "required_approving_review_count": 2,
-                        "dismiss_stale_reviews_on_push": True,
-                        "require_code_owner_review": True,
-                        "require_last_push_approval": True,
-                        "required_review_thread_resolution": True,
-                    },
-                }
-            )
-        # Add additional protection rules
-        rules.append({"type": "deletion"})
-        rules.append({"type": "required_linear_history"})
-        rules.append({"type": "required_signatures"})
-    elif rule_type == "custom":
-        # For custom rule type, add rules based on user selections
-        # Add PR review rule if approvals are required
-        if not any(rule.get("type") == "pull_request" for rule in rules) and issue_data.get(
-            "require_code_owner_review", False
-        ):
-            # Create a custom PR rule based on the selections
-            pr_params = {
-                "dismiss_stale_reviews_on_push": issue_data.get("dismiss_stale_reviews", False),
-                "require_code_owner_review": issue_data.get("require_code_owner_review", False),
-                "require_last_push_approval": True,
-                "required_approving_review_count": int(issue_data.get("require_approvals", 0) or 1),
-                "required_review_thread_resolution": True,
-            }
-            rules.append({"type": "pull_request", "parameters": pr_params})
-            logger.info(f"Adding custom PR rule to ruleset {name}")
-
-    ruleset["rules"] = rules
-    return ruleset
+    # Handle security settings conversions
+    security_keys = {
+        "_security_vulnerability_alerts": "enableVulnerabilityAlerts",
+        "_security_automated_fixes": "enableAutomatedSecurityFixes",
+    }
+    has_security_settings = any(k in result for k in security_keys)
+    if has_security_settings:
+        result["security"] = {}
+        for result_key, config_key in security_keys.items():
+            if result_key in result:
+                result["security"][config_key] = result[result_key]
+                del result[result_key]
 
 
-def select_branch_strategy_ruleset(
-    config: Dict[str, Any], issue_data: Dict[str, Any], default_config: Dict[str, Any]
+def process_repository_issue(issue_data: Dict[str, Any]) -> Dict[str, Any]:
+    """Process repository management issue data and perform requested actions."""
+    action = issue_data.get("action")
+    repo_name = issue_data.get("repository_name")
+
+    if not repo_name:
+        return {"status": "error", "message": "Repository name is required"}
+
+    # Validate repository name format
+    if not validate_repository_name(repo_name):
+        return {"status": "error", "message": "Invalid repository name format"}
+
+    # Get GitHub token and organization
+    github_token = os.environ.get("GITHUB_TOKEN")
+    github_org = os.environ.get("GITHUB_ORG")
+
+    if not github_token or not github_org:
+        return {"status": "error", "message": "Missing GitHub token or organization name"}
+
+    # Initialize the GitHub repository manager
+    try:
+        repo_manager = GitHubRepositoryManager(github_token, github_org)
+        logger.info(f"Initialized GitHub repo manager for {github_org}")
+    except Exception as e:
+        logger.error(f"Failed to initialize GitHub repository manager: {e}")
+        return {"status": "error", "message": f"Failed to initialize GitHub API: {str(e)}"}
+
+    # Call appropriate function based on action
+    if action == "create":
+        return create_repository(repo_manager, repo_name, issue_data)
+    if action == "update":
+        return update_repository(repo_manager, repo_name, issue_data)
+    if action == "remove":
+        return remove_repository(repo_manager, repo_name, issue_data)
+
+    return {"status": "error", "message": "Invalid action specified"}
+
+
+def create_repository(
+    repo_manager: GitHubRepositoryManager, repo_name: str, issue_data: Dict[str, Any]
 ) -> Dict[str, Any]:
-    """Select the appropriate ruleset based on the branch strategy."""
-    # Extract the branch strategy (handling parentheses format)
+    """Handle repository creation."""
+    try:
+        # First check if repository already exists
+        if repo_manager.repo_exists(repo_name):
+            return {"status": "error", "message": f"Repository {repo_name} already exists"}
+
+        # Load and prepare configuration
+        repo_config = _prepare_repository_config(repo_name, issue_data)
+
+        # Create repository configuration file
+        if not create_repository_config(repo_name, repo_config):
+            return {"status": "error", "message": "Failed to create repository configuration file"}
+
+        # Create the repository using GitHub API
+        logger.info(f"Creating GitHub repository: {repo_name}")
+        repo = repo_manager.create_repository(repo_config)
+
+        if not repo:
+            return {"status": "error", "message": "Failed to create GitHub repository"}
+
+        # Create default branches based on branch strategy
+        branch_strategy = repo_config.get("branch_strategy", "default")
+        branch_result = create_default_branches(repo, branch_strategy)
+
+        # Process any sync results to extract warnings and errors
+        sync_results = getattr(repo, "_sync_results", {})
+        error_info = process_sync_results(sync_results)
+
+        # Prepare response
+        return _prepare_creation_response(repo_name, branch_result, error_info)
+
+    except Exception as e:
+        logger.error(f"Error creating repository: {e}", exc_info=True)
+        return {"status": "error", "message": f"Failed to create repository: {str(e)}"}
+
+
+def _prepare_repository_config(repo_name: str, issue_data: Dict[str, Any]) -> Dict[str, Any]:
+    """Prepare repository configuration from issue data and defaults."""
+    # Load default configuration
+    default_config = load_default_config().get("repository", {})
+
+    # Replace the placeholder repository name with the actual name
+    if default_config.get("name") == "[repository_name]":
+        default_config["name"] = repo_name
+
+    # Create a clean config starting with core properties
+    repo_config = {
+        "name": repo_name,
+        "visibility": issue_data.get("visibility", default_config.get("visibility", "private")),
+    }
+
+    # Improved description handling - always include description even if empty
+    if "description" in issue_data:
+        repo_config["description"] = issue_data["description"]
+        logger.info(f"Setting description to: '{issue_data['description']}'")
+    elif "description" in default_config:
+        repo_config["description"] = default_config["description"]
+
+    # Add template if specified
+    if "template" in issue_data and issue_data["template"]:
+        repo_config["template"] = issue_data["template"]
+    elif "template" in default_config:
+        repo_config["template"] = default_config["template"]
+
+    # Add default branch if specified
+    if "default_branch" in issue_data and issue_data["default_branch"]:
+        repo_config["default_branch"] = issue_data["default_branch"]
+        logger.info(f"Setting default branch to: {issue_data['default_branch']}")
+    elif "default_branch" in default_config:
+        repo_config["default_branch"] = default_config["default_branch"]
+        logger.info(f"Using default branch from default config: {default_config['default_branch']}")
+
+    # Handle cost-centre custom property
+    if "cost_centre" in issue_data and issue_data["cost_centre"]:
+        if "custom_properties" not in repo_config:
+            repo_config["custom_properties"] = {}
+        repo_config["custom_properties"]["cost-centre"] = {
+            "value": issue_data["cost_centre"],
+            "required": True,
+            "pattern": "\\b\\d{6}\\b",
+            "description": "Cost centre code (exactly 6 digits)",
+        }
+        logger.info(f"Setting cost-centre to: {issue_data['cost_centre']}")
+    elif "custom_properties" in default_config:
+        repo_config["custom_properties"] = default_config["custom_properties"]
+
+    # Add boolean settings
+    _add_boolean_settings(repo_config, issue_data, default_config)
+
+    # Handle topics
+    _add_topics(repo_config, issue_data, default_config)
+
+    # Handle security settings
+    _add_security_settings(repo_config, issue_data, default_config)
+
+    # Apply branch strategy ruleset selection - always default to git-flow if not specified
     branch_strategy = issue_data.get("branch_strategy", "git-flow")
-
-    # Handle empty or "No response" values - default to git-flow
-    if not branch_strategy or branch_strategy == "_No response_":
+    if branch_strategy == "_No response_" or not branch_strategy:
         branch_strategy = "git-flow"
-        logger.info("No branch strategy selected, defaulting to git-flow")
+        logger.info(f"Using git-flow as default branch strategy")
 
-    # Clean up format (remove parenthetical info)
+    # Ensure strategy is properly formatted (remove parenthetical notes)
     if isinstance(branch_strategy, str) and "(" in branch_strategy:
         branch_strategy = branch_strategy.split("(")[0].strip()
 
-    logger.info(f"Selecting branch strategy ruleset: {branch_strategy}")
+    repo_config["branch_strategy"] = branch_strategy
+    logger.info(f"Setting branch strategy to: {branch_strategy}")
 
-    # If strategy is 'custom', keep any custom rulesets from issue_data
-    if branch_strategy == "custom":
-        logger.info("Using custom branch strategy - applying specific branch rules")
-        # Ensure branch_strategy is explicitly set
-        config["branch_strategy"] = "custom"
-        return config
+    # Select and apply branch strategy ruleset
+    repo_config = select_branch_strategy_ruleset(repo_config, issue_data, default_config)
 
-    # Get branch strategies from default config
-    branch_strategies = default_config.get("branch_strategies", {})
+    # Handle custom rulesets only if branch strategy is "custom"
+    if isinstance(branch_strategy, str) and branch_strategy.startswith("custom"):
+        custom_rulesets = issue_data.get("rulesets", [])
+        if custom_rulesets:
+            logger.info(f"Applying {len(custom_rulesets)} custom rulesets")
+            repo_config["rulesets"] = custom_rulesets
 
-    # Use git-flow as the fallback strategy if the selected one doesn't exist
-    if branch_strategy not in branch_strategies and branch_strategy != "default":
-        logger.warning(f"Branch strategy '{branch_strategy}' not found, defaulting to git-flow")
-        branch_strategy = "git-flow"
+    return repo_config
 
-    # Set the branch strategy in config
-    config["branch_strategy"] = branch_strategy
 
-    # Apply ONLY the selected strategy's rulesets, not the entire branch_strategies structure
-    if branch_strategy in branch_strategies:
-        logger.info(f"Applying branch strategy: {branch_strategy}")
-        if "rulesets" in branch_strategies[branch_strategy]:
-            config["rulesets"] = branch_strategies[branch_strategy]["rulesets"]
+def _add_boolean_settings(
+    repo_config: Dict[str, Any], issue_data: Dict[str, Any], default_config: Dict[str, Any]
+) -> None:
+    """Add boolean settings to repository configuration."""
+    bool_settings = [
+        "has_issues",
+        "has_projects",
+        "has_wiki",
+        "has_discussions",
+        "allow_squash_merge",
+        "allow_merge_commit",
+        "allow_rebase_merge",
+        "allow_auto_merge",
+        "delete_branch_on_merge",
+        "allow_update_branch",
+    ]
+
+    for setting in bool_settings:
+        # Explicitly check if the setting is in issue_data to preserve user selections
+        if setting in issue_data:
+            value = get_boolean_setting(issue_data, setting, default_config)
+            if value is not None:  # Only set if a value is determined
+                repo_config[setting] = value
         else:
-            logger.warning(f"No rulesets found for {branch_strategy}, using empty set")
-            config["rulesets"] = []
+            # For settings not in issue_data, use default value
+            if setting in default_config:
+                repo_config[setting] = default_config[setting]
+
+
+def _add_topics(repo_config: Dict[str, Any], issue_data: Dict[str, Any], default_config: Dict[str, Any]) -> None:
+    """Add topics to repository configuration."""
+    if "topics" in issue_data and issue_data["topics"]:
+        clean_topics = [topic for topic in issue_data["topics"] if topic != "_No response_"]
+        if clean_topics:
+            repo_config["topics"] = clean_topics
+    elif "topics" in default_config:
+        repo_config["topics"] = default_config["topics"]
+
+
+def _add_security_settings(
+    repo_config: Dict[str, Any], issue_data: Dict[str, Any], default_config: Dict[str, Any]
+) -> None:
+    """Add security settings to repository configuration."""
+    if "security" in issue_data:
+        repo_config["security"] = issue_data["security"]
+    elif "security" in default_config:
+        repo_config["security"] = default_config["security"]
+
+
+def _prepare_creation_response(
+    repo_name: str, branch_result: Dict[str, Any], error_info: Dict[str, Any]
+) -> Dict[str, Any]:
+    """Prepare response for repository creation."""
+    response = {"status": "success", "message": f"Repository {repo_name} created successfully"}
+
+    # Add branch creation status to response
+    if branch_result:
+        if branch_result.get("status") == "success":
+            response["message"] += f" with {branch_result.get('branches_created', 0)} branches created"
+        else:
+            response["message"] += f" (but branch creation had issues: {branch_result.get('message', '')})"
+
+    # Add any errors/warnings to the response
+    if error_info:
+        if "ruleset_errors" in error_info and error_info["ruleset_errors"]:
+            response["ruleset_errors"] = error_info["ruleset_errors"]
+        if "general_errors" in error_info and error_info["general_errors"]:
+            response["message"] += f" (with {len(error_info['general_errors'])} errors)"
+            response["general_errors"] = error_info["general_errors"]
+
+    return response
+
+
+# Fix the unused argument and bare except issues
+def create_default_branches(repo, branch_strategy: str) -> Dict[str, Any]:
+    """Create default branches based on the selected branch strategy."""
+    try:
+        branches_to_create = []
+
+        # Determine which branches to create based on branch strategy
+        if branch_strategy in ("git-flow", "default"):
+            branches_to_create.append({"name": "develop", "source": "main"})
+        elif branch_strategy == "gitlab-flow":
+            branches_to_create.append({"name": "production", "source": "main"})
+            branches_to_create.append({"name": "staging", "source": "main"})
+        elif branch_strategy == "release-flow":
+            # No additional branches needed by default
+            pass
+        elif branch_strategy == "trunk-based":
+            # Check if main exists, if not create it as 'trunk'
+            try:
+                repo.get_branch("main")
+            except Exception:  # Replace bare except with Exception
+                branches_to_create.append({"name": "trunk", "source": "main"})
+
+        # Create the branches using GitHub API
+        branches_created = 0
+        for branch in branches_to_create:
+            try:
+                # Get the source branch reference
+                source_ref = repo.get_git_ref(f"heads/{branch['source']}")
+                if source_ref:
+                    # Create new branch from the source branch
+                    repo.create_git_ref(ref=f"refs/heads/{branch['name']}", sha=source_ref.object.sha)
+                    logger.info(f"Created branch {branch['name']} from {branch['source']}")
+                    branches_created += 1
+            except Exception as e:  # Specify exception type
+                logger.error(f"Error creating branch {branch['name']}: {e}")
+                return {
+                    "status": "error",
+                    "message": f"Error creating branch {branch['name']}: {str(e)}",
+                    "branches_created": branches_created,
+                }
+
+        return {
+            "status": "success",
+            "message": f"Created {branches_created} branches",
+            "branches_created": branches_created,
+        }
+
+    except Exception as e:  # Specify exception type
+        logger.error(f"Error creating default branches: {e}")
+        return {"status": "error", "message": f"Failed to create default branches: {str(e)}"}
+
+
+def update_repository(
+    repo_manager: GitHubRepositoryManager, repo_name: str, issue_data: Dict[str, Any]
+) -> Dict[str, Any]:
+    """Handle repository updates."""
+    try:
+        # Check if repository exists
+        if not repo_manager.repo_exists(repo_name):
+            return {"status": "error", "message": f"Repository {repo_name} does not exist"}
+
+        # Get existing repository configuration
+        existing_config = get_existing_config(repo_name)
+        logger.info(f"Loaded existing config for {repo_name}: {json.dumps(existing_config, default=str)}")
+
+        if not existing_config:
+            # If no existing config, create one based on default
+            existing_config = load_default_config().get("repository", {}).copy()
+            existing_config["name"] = repo_name
+
+        # Prepare updated configuration by merging existing config with issue data
+        updated_config = _prepare_update_config(existing_config, issue_data)
+
+        # Handle branch strategy configuration
+        updated_config = _handle_branch_strategy(updated_config, issue_data)
+
+        # Handle ruleset configuration
+        updated_config = _handle_rulesets(updated_config, issue_data)
+
+        # Log the final configuration that will be applied
+        logger.info(f"Final updated configuration: {json.dumps(updated_config, default=str)}")
+
+        # Create/update repository configuration file
+        if not create_repository_config(repo_name, updated_config):
+            return {"status": "error", "message": "Failed to update repository configuration file"}
+
+        # Update the repository using GitHub API
+        logger.info(f"Updating GitHub repository: {repo_name}")
+        repo = repo_manager.update_repository(repo_name, updated_config)
+
+        if not repo:
+            return {"status": "error", "message": "Failed to update GitHub repository"}
+
+        # Process any sync results to extract warnings and errors
+        sync_results = getattr(repo, "_sync_results", {})
+        error_info = process_sync_results(sync_results)
+
+        response = {"status": "success", "message": f"Repository {repo_name} updated successfully"}
+
+        # Add any errors/warnings to the response
+        if error_info:
+            if "ruleset_errors" in error_info and error_info["ruleset_errors"]:
+                response["ruleset_errors"] = error_info["ruleset_errors"]
+            if "general_errors" in error_info and error_info["general_errors"]:
+                response["message"] += f" (with {len(error_info['general_errors'])} errors)"
+                response["general_errors"] = error_info["general_errors"]
+
+        logger.info(f"Successfully updated repository {repo_name}")
+        return response
+
+    except Exception as e:
+        logger.error(f"Error updating repository: {e}", exc_info=True)
+        return {"status": "error", "message": f"Failed to update repository: {str(e)}"}
+
+
+def _prepare_update_config(existing_config: Dict[str, Any], issue_data: Dict[str, Any]) -> Dict[str, Any]:
+    """Prepare configuration for repository update by merging existing config with issue data."""
+    updated_config = existing_config.copy()
+
+    # Explicitly handle default branch if specified
+    if "default_branch" in issue_data and issue_data["default_branch"]:
+        updated_config["default_branch"] = issue_data["default_branch"]
+        logger.info(f"Setting default branch to: {issue_data['default_branch']}")
+
+    # Apply updates to configuration
+    updated_config = update_basic_settings(updated_config, issue_data)
+    updated_config = update_boolean_settings(updated_config, issue_data)
+    updated_config = update_security_settings(updated_config, issue_data)
+
+    # Handle cost-centre custom property update
+    if "cost_centre" in issue_data and issue_data["cost_centre"]:
+        if "custom_properties" not in updated_config:
+            updated_config["custom_properties"] = {}
+
+        # If cost-centre already exists, update it; otherwise create it
+        if "cost-centre" not in updated_config["custom_properties"]:
+            updated_config["custom_properties"]["cost-centre"] = {
+                "required": True,
+                "pattern": "\\b\\d{6}\\b",
+                "description": "Cost centre code (exactly 6 digits)",
+            }
+
+        # Always update the value
+        updated_config["custom_properties"]["cost-centre"]["value"] = issue_data["cost_centre"]
+        logger.info(f"Updating cost-centre to: {issue_data['cost_centre']}")
+
+    return updated_config
+
+
+def _handle_branch_strategy(config: Dict[str, Any], issue_data: Dict[str, Any]) -> Dict[str, Any]:
+    """Handle branch strategy configuration updates."""
+    # Load default config for branch strategies
+    default_config = load_default_config().get("repository", {})
+
+    # Handle branch strategy - ensure it's always in the config
+    if "branch_strategy" in issue_data and issue_data["branch_strategy"] not in (None, "", "_No response_"):
+        branch_strategy = issue_data["branch_strategy"]
+        # Clean up format (remove parenthetical info)
+        if isinstance(branch_strategy, str) and "(" in branch_strategy:
+            branch_strategy = branch_strategy.split("(")[0].strip()
+
+        config["branch_strategy"] = branch_strategy
+        logger.info(f"Updating branch strategy to: {branch_strategy}")
+        config = select_branch_strategy_ruleset(config, issue_data, default_config)
+    elif "branch_strategy" not in config:
+        # Default to git-flow if branch_strategy is missing
+        config["branch_strategy"] = "git-flow"
+        logger.info("Setting git-flow as default branch strategy")
+        # Apply git-flow branch strategy ruleset
+        config = select_branch_strategy_ruleset(config, {"branch_strategy": "git-flow"}, default_config)
+
+    return config
+
+
+def _handle_rulesets(config: Dict[str, Any], issue_data: Dict[str, Any]) -> Dict[str, Any]:
+    """Handle ruleset configuration updates."""
+    branch_strategy = config.get("branch_strategy", "")
+
+    # For update action: Create new rulesets or update existing ones if using custom strategy
+    if isinstance(branch_strategy, str) and branch_strategy.startswith("custom"):
+        # Check if we need to create a new ruleset based on branch protection fields
+        if "branch_name" in issue_data and issue_data["branch_name"] and "branch_rule_type" in issue_data:
+            branch_name = issue_data.get("branch_name")
+            branch_rule_type = issue_data.get("branch_rule_type")
+            branch_includes = issue_data.get("branch_includes", [])
+            branch_excludes = issue_data.get("branch_excludes", [])
+
+            if branch_name and branch_rule_type and (branch_includes or branch_excludes):
+                # Create ruleset from branch protection
+                ruleset = create_branch_protection_ruleset(
+                    branch_name, branch_rule_type, branch_includes, branch_excludes, issue_data
+                )
+
+                # Add to existing rulesets or create new array
+                if "rulesets" not in config:
+                    config["rulesets"] = []
+
+                # Check if this ruleset already exists and replace it, or add as new
+                existing_idx = next((i for i, r in enumerate(config["rulesets"]) if r.get("name") == branch_name), None)
+                if existing_idx is not None:
+                    config["rulesets"][existing_idx] = ruleset
+                    logger.info(f"Replacing existing ruleset: {branch_name}")
+                else:
+                    config["rulesets"].append(ruleset)
+                    logger.info(f"Adding new ruleset: {branch_name}")
+        # Only apply custom rulesets if strategy is "custom"
+        config = update_rulesets(config, issue_data)
+    elif "branch_name" in issue_data and issue_data["branch_name"]:
+        # Allow custom ruleset updates or removals regardless of strategy for update/remove actions
+        if issue_data.get("action") in ("update", "remove"):
+            config = update_rulesets(config, issue_data)
+
+    return config
+
+
+def remove_repository(
+    repo_manager: GitHubRepositoryManager, repo_name: str, issue_data: Dict[str, Any]
+) -> Dict[str, Any]:
+    """Handle repository removal of settings (not deletion)."""
+    try:
+        # Check if repository exists
+        if not repo_manager.repo_exists(repo_name):
+            return {"status": "error", "message": f"Repository {repo_name} does not exist"}
+
+        # Get existing repository configuration
+        existing_config = get_existing_config(repo_name)
+
+        if not existing_config:
+            return {"status": "error", "message": f"Repository configuration not found for {repo_name}"}
+
+        updated_config = existing_config.copy()
+
+        # Handle removals based on what's specified in issue_data
+        # Only handle non-boolean settings for removal
+
+        # Remove specified topics
+        if "topics" in issue_data and issue_data["topics"]:
+            topics_to_remove = set(issue_data["topics"])
+            if "topics" in updated_config:
+                updated_config["topics"] = [t for t in updated_config["topics"] if t not in topics_to_remove]
+
+        # Remove specified branch protection rule
+        if "branch_name" in issue_data and issue_data["branch_name"]:
+            branch_rule_name = issue_data["branch_name"]
+            if "rulesets" in updated_config:
+                # Check if the ruleset exists before removing
+                ruleset_exists = any(rule.get("name") == branch_rule_name for rule in updated_config["rulesets"])
+                if ruleset_exists:
+                    logger.info(f"Removing ruleset: {branch_rule_name}")
+                    updated_config["rulesets"] = [
+                        rule for rule in updated_config["rulesets"] if rule.get("name") != branch_rule_name
+                    ]
+                else:
+                    logger.warning(f"Ruleset {branch_rule_name} not found, nothing to remove")
+
+        # Create/update repository configuration file
+        if not create_repository_config(repo_name, updated_config):
+            return {"status": "error", "message": "Failed to update repository configuration file"}
+
+        # Update the repository using GitHub API
+        logger.info(f"Applying removals to GitHub repository: {repo_name}")
+        repo = repo_manager.update_repository(repo_name, updated_config)
+
+        if not repo:
+            return {"status": "error", "message": "Failed to update GitHub repository with removals"}
+
+        logger.info(f"Successfully removed settings from repository {repo_name}")
+        return {"status": "success", "message": f"Successfully removed specified settings from repository {repo_name}"}
+
+    except Exception as e:
+        logger.error(f"Error removing settings from repository: {e}")
+        return {"status": "error", "message": f"Failed to remove settings: {str(e)}"}
+
+
+if __name__ == "__main__":
+    issue_body = os.getenv("ISSUE_BODY")
+    if issue_body:
+        issue_data = parse_issue_body(issue_body)
+        result = process_repository_issue(issue_data)
+        print(json.dumps(result))
     else:
-        # Use git-flow as default if nothing else matches
-        logger.info("Applying git-flow branch strategy as default")
-        if "git-flow" in branch_strategies and "rulesets" in branch_strategies["git-flow"]:
-            config["rulesets"] = branch_strategies["git-flow"]["rulesets"]
-        else:
-            logger.warning("No git-flow rulesets found, using empty set")
-            config["rulesets"] = []
-
-    return config
-
-
-def update_rulesets(config: Dict[str, Any], issue_data: Dict[str, Any]) -> Dict[str, Any]:
-    """Update repository rulesets."""
-    if "rulesets" not in issue_data or not issue_data["rulesets"]:
-        return config
-
-    # Log the rulesets for debugging
-    logger.info(f"Processing rulesets from issue data")
-
-    if "rulesets" not in config:
-        config["rulesets"] = []
-
-    # Process each ruleset in issue data
-    for new_ruleset in issue_data["rulesets"]:
-        # Skip if no name provided or if '_No response_' is found
-        if not new_ruleset.get("name") or new_ruleset.get("name") == "_No response_":
-            logger.warning("Skipping ruleset with no name or '_No response_' value")
-            continue
-
-        ruleset_name = new_ruleset.get("name")
-        logger.info(f"Processing ruleset: {ruleset_name}")
-
-        # Check if ruleset with same name already exists
-        existing_ruleset = next((rule for rule in config["rulesets"] if rule.get("name") == ruleset_name), None)
-
-        if existing_ruleset:
-            # Update existing ruleset with new settings
-            logger.info(f"Updating existing ruleset: {ruleset_name}")
-            update_existing_ruleset(existing_ruleset, new_ruleset)
-        else:
-            # Add new ruleset
-            logger.info(f"Adding new ruleset: {ruleset_name}")
-            config["rulesets"].append(new_ruleset)
-
-    return config
-
-
-def update_existing_ruleset(existing_ruleset: Dict[str, Any], new_ruleset: Dict[str, Any]) -> None:
-    """Update an existing ruleset with new settings."""
-    # Update top-level properties
-    for key, value in new_ruleset.items():
-        if key in ("rules", "conditions"):
-            continue  # Handle these separately
-        existing_ruleset[key] = value
-
-    # Update conditions if present
-    if "conditions" in new_ruleset:
-        if "conditions" not in existing_ruleset:
-            existing_ruleset["conditions"] = {}
-
-        for cond_key, cond_value in new_ruleset["conditions"].items():
-            if cond_key == "ref_name":
-                # Special handling for ref_name to properly merge includes/excludes
-                if "ref_name" not in existing_ruleset["conditions"]:
-                    existing_ruleset["conditions"]["ref_name"] = {"include": [], "exclude": []}
-
-                if "include" in cond_value:
-                    # Handle string or list format and ensure proper refs/heads/ prefix
-                    if isinstance(cond_value["include"], str):
-                        branch_refs = parse_list_section(cond_value["include"])
-                        formatted_refs = format_branch_references(branch_refs)
-                        existing_ruleset["conditions"]["ref_name"]["include"] = formatted_refs
-                    else:
-                        # Already a list, just ensure proper formatting
-                        existing_ruleset["conditions"]["ref_name"]["include"] = format_branch_references(
-                            cond_value["include"]
-                        )
-
-                if "exclude" in cond_value:
-                    # Handle exclude patterns similarly to includes
-                    if isinstance(cond_value["exclude"], str):
-                        branch_refs = parse_list_section(cond_value["exclude"])
-                        formatted_refs = format_branch_references(branch_refs)
-                        existing_ruleset["conditions"]["ref_name"]["exclude"] = formatted_refs
-                    else:
-                        # Already a list
-                        existing_ruleset["conditions"]["ref_name"]["exclude"] = format_branch_references(
-                            cond_value["exclude"]
-                        )
-            else:
-                existing_ruleset["conditions"][cond_key] = cond_value
-
-    # Handle rules separately if present
-    if "rules" in new_ruleset:
-        if "rules" not in existing_ruleset:
-            existing_ruleset["rules"] = []
-        update_ruleset_rules(existing_ruleset["rules"], new_ruleset["rules"])
-
-
-def update_ruleset_rules(existing_rules: List[Dict[str, Any]], new_rules: List[Dict[str, Any]]) -> None:
-    """Update existing ruleset rules with new rules."""
-    for new_rule in new_rules:
-        if "type" not in new_rule:
-            continue
-
-        rule_type = new_rule["type"]
-        matching_rule = next((r for r in existing_rules if r.get("type") == rule_type), None)
-
-        if matching_rule:
-            # Update existing rule
-            logger.info(f"Updating rule type: {rule_type}")
-            if "parameters" in new_rule:
-                # Create parameters if it doesn't exist
-                if "parameters" not in matching_rule:
-                    matching_rule["parameters"] = {}
-
-                # Update rule parameters
-                for param_key, param_value in new_rule["parameters"].items():
-                    matching_rule["parameters"][param_key] = param_value
-            else:
-                # Update all other rule properties
-                for rule_key, rule_value in new_rule.items():
-                    if rule_key != "type":  # Don't overwrite the type
-                        matching_rule[rule_key] = rule_value
-        else:
-            # Add new rule
-            logger.info(f"Adding new rule type: {rule_type}")
-            existing_rules.append(new_rule.copy())
+        logger.error("ISSUE_BODY environment variable is required")
+        sys.exit(1)
