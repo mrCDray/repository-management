@@ -8,6 +8,15 @@ repository:
   visibility: internal
   # A list of topics to set on the repository - can alternatively set like this: [github, probot, new-topic, another-topic, topic-12]
   topics: []
+  
+  # Custom properties for repository metadata and compliance
+  custom_properties:
+    cost-centre:
+      value: ""
+      required: true
+      pattern: "\\b\\d{6}\\b"
+      description: "Cost centre code (exactly 6 digits)"
+    
   # General repository settings
   has_issues: true
   has_projects: false
@@ -20,10 +29,23 @@ repository:
   delete_branch_on_merge: true
   allow_update_branch: true
   
+  # Archive settings
+  archived: false
+  
+  # Pages settings
+  has_pages: false
+  
+  # Default branch
+  default_branch: main
+  
   # Security settings
   security:
     enableVulnerabilityAlerts: true
     enableAutomatedSecurityFixes: true
+    enableSecretScanning: true
+    enableSecretScanningPushProtection: true
+    enableDependencyReview: true
+    enableCodeScanning: true
   
   # Alternative branch strategy configurations
   branch_strategies:
@@ -48,6 +70,7 @@ repository:
             - type: required_status_checks
               parameters:
                 strict_required_status_checks_policy: true
+                do_not_enforce_on_create: true
                 required_status_checks:
                   - context: CodeQL
         
@@ -57,7 +80,7 @@ repository:
           conditions:
             ref_name:
               include: ["refs/heads/feature/*"]
-              exclude: []
+              exclude: ["refs/heads/feature/push_new_pr_update*"]
           rules:
             - type: branch_name_pattern
               parameters:
@@ -125,7 +148,7 @@ repository:
           conditions:
             ref_name:
               include: ["refs/heads/feature/*"]
-              exclude: []
+              exclude: ["refs/heads/feature/push_new_pr_update*"]
           rules:
             - type: branch_name_pattern
               parameters:
@@ -283,7 +306,7 @@ repository:
           conditions:
             ref_name:
               include: ["refs/heads/feature/*"]
-              exclude: []
+              exclude: ["refs/heads/feature/push_new_pr_update*"]
           rules:
             - type: branch_name_pattern
               parameters:
@@ -335,7 +358,7 @@ repository:
           conditions:
             ref_name:
               include: ["refs/heads/feature/*"]
-              exclude: []
+              exclude: ["refs/heads/feature/push_new_pr_update*"]
           rules:
             - type: branch_name_pattern
               parameters:
