@@ -2,9 +2,9 @@
 
 import os
 import logging
+import re
 from collections import OrderedDict
 from typing import Dict, Any, Optional
-import re
 import yaml
 
 # Configure logging
@@ -39,23 +39,15 @@ def is_boolean_setting(key: str) -> bool:
         "allow_auto_merge",
         "delete_branch_on_merge",
         "allow_update_branch",
-        "enable_vulnerability_alerts",
-        "enable_automated_security_fixes",
+        "archived",
+        "has_pages",
         "require_code_owner_review",
         "dismiss_stale_reviews",
         "require_status_checks",
         "restrict_push_access",
+        "do_not_enforce_on_create",
     ]
     return key in boolean_settings
-
-
-def is_boolean_value(value: Any) -> bool:
-    """Check if a value is a boolean or a string representation of a boolean."""
-    if isinstance(value, bool):
-        return True
-    if isinstance(value, str) and value.lower() in ("true", "false"):
-        return True
-    return False
 
 
 def to_boolean(value: Any) -> Optional[bool]:
@@ -66,7 +58,6 @@ def to_boolean(value: Any) -> Optional[bool]:
         return True
     if isinstance(value, str) and value.lower() == "false":
         return False
-    # Default to None for non-boolean values
     return None
 
 
@@ -86,12 +77,33 @@ def get_boolean_setting(
     """
     # If the key is explicitly in issue data, use that value
     if key in issue_data:
-        return issue_data[key]
+        return to_boolean(issue_data[key])
     # For updates with existing config, don't change if not specified
     if existing_config is not None:
         return None  # Return None to indicate "don't change"
     # For creates without an explicit value, use the default
     return default_config.get(key)
+
+
+def validate_custom_properties(custom_properties: Dict[str, Any]) -> bool:
+    """Validate custom properties against their patterns."""
+    for property_name, property_config in custom_properties.items():
+        value = property_config.get("value", "")
+        pattern = property_config.get("pattern")
+        required = property_config.get("required", False)
+
+        # Check if required property has a value
+        if required and not value:
+            logger.error(f"Required custom property '{property_name}' is missing a value")
+            return False
+
+        # Validate pattern if both value and pattern exist
+        if pattern and value:
+            if not re.match(pattern, value):
+                logger.error(f"Custom property '{property_name}' value '{value}' does not match pattern '{pattern}'")
+                return False
+
+    return True
 
 
 def load_default_config() -> Dict[str, Any]:
@@ -110,39 +122,26 @@ def load_default_config() -> Dict[str, Any]:
 
 
 def create_repository_config(repo_name: str, repo_config: Dict[str, Any]) -> bool:
-    """Create or update the repository configuration file.
-
-    Args:
-        repo_name: Name of the repository
-        repo_config: Repository configuration dictionary
-
-    Returns:
-        Boolean indicating whether the operation succeeded
-    """
+    """Create or update the repository configuration file."""
     try:
-        # Use the proper directory structure: repositories/[repo_name]/repository.yml
         base_dir = os.environ.get("REPOSITORY_CONFIG_DIR", os.path.join(os.getcwd(), "repositories"))
         repo_dir = os.path.join(base_dir, repo_name)
         os.makedirs(repo_dir, exist_ok=True)
 
-        # Create the file path with standard name repository.yml
         config_file = os.path.join(repo_dir, "repository.yml")
 
         # Sort keys in a predictable order for better readability
         ordered_config = OrderedDict()
 
-        # Add core properties first in a specific order
+        # Add core properties first
         core_props = ["name", "description", "visibility", "template", "branch_strategy", "topics"]
         for prop in core_props:
             if prop in repo_config:
                 ordered_config[prop] = repo_config[prop]
 
-        # Ensure branch_strategy is always included
-        if "branch_strategy" not in ordered_config and "branch_strategy" in repo_config:
-            ordered_config["branch_strategy"] = repo_config["branch_strategy"]
-        elif "branch_strategy" not in ordered_config:
-            ordered_config["branch_strategy"] = "default"
-            logger.info(f"Adding default branch strategy to repository config file")
+        # Add custom properties
+        if "custom_properties" in repo_config:
+            ordered_config["custom_properties"] = repo_config["custom_properties"]
 
         # Add boolean settings
         bool_settings = [
@@ -156,11 +155,20 @@ def create_repository_config(repo_name: str, repo_config: Dict[str, Any]) -> boo
             "allow_auto_merge",
             "delete_branch_on_merge",
             "allow_update_branch",
+            "archived",
+            "has_pages",
         ]
 
         for prop in bool_settings:
             if prop in repo_config:
                 ordered_config[prop] = repo_config[prop]
+
+        # Add other settings
+        other_settings = ["default_branch"]
+        for prop in other_settings:
+            if prop in repo_config:
+                ordered_config[prop] = repo_config[prop]
+                logger.info(f"Adding {prop} to config: {repo_config[prop]}")
 
         # Add security settings
         if "security" in repo_config:
@@ -182,16 +190,8 @@ def create_repository_config(repo_name: str, repo_config: Dict[str, Any]) -> boo
 
 
 def get_existing_config(repo_name: str) -> Optional[Dict[str, Any]]:
-    """Get existing repository configuration.
-
-    Args:
-        repo_name: Name of the repository
-
-    Returns:
-        Existing repository configuration or None if not found
-    """
+    """Get existing repository configuration."""
     try:
-        # Use the proper directory structure: repositories/[repo_name]/repository.yml
         base_dir = os.environ.get("REPOSITORY_CONFIG_DIR", os.path.join(os.getcwd(), "repositories"))
         config_file = os.path.join(base_dir, repo_name, "repository.yml")
 
@@ -211,57 +211,61 @@ def get_existing_config(repo_name: str) -> Optional[Dict[str, Any]]:
 
 def validate_repository_name(repo_name: str) -> bool:
     """Validate repository name format."""
-    # Repository names must be lowercase, contain hyphens instead of spaces,
-    # and match GitHub's repository naming rules
     pattern = r"^[a-z0-9]+(?:-[a-z0-9]+)*$"
     return bool(re.match(pattern, repo_name))
 
 
 def update_basic_settings(config: Dict[str, Any], issue_data: Dict[str, Any]) -> Dict[str, Any]:
     """Update basic repository settings."""
-    # Handle key settings that should be explicitly overriden if in issue data
     if "visibility" in issue_data:
         config["visibility"] = issue_data["visibility"]
         logger.info(f"Setting visibility to {issue_data['visibility']}")
 
-    # Improved description handling - update if present in issue_data, even if empty
     if "description" in issue_data:
-        action = issue_data.get("action", "")
-        if action in ("create", "update"):
-            config["description"] = issue_data["description"]
-            logger.info(f"Setting description to '{issue_data['description']}'")
-        else:
-            logger.info(f"Ignoring description for action '{action}'")
+        config["description"] = issue_data["description"]
+        logger.info(f"Setting description to '{issue_data['description']}'")
 
-    # Handle branch strategy if specified (extract the value before any parentheses)
     if "branch_strategy" in issue_data:
         branch_strategy = issue_data["branch_strategy"]
-        # Extract the strategy name if it contains parentheses (e.g., "default (Git Flow)")
         if "(" in branch_strategy:
             branch_strategy = branch_strategy.split("(")[0].strip()
         config["branch_strategy"] = branch_strategy
         logger.info(f"Setting branch strategy to {branch_strategy}")
 
-    # Handle topics - add new topics, don't replace existing ones
     if "topics" in issue_data and issue_data["topics"]:
         if "topics" not in config:
             config["topics"] = []
-        # Add new topics that don't already exist
         existing_topics = set(config["topics"])
         for topic in issue_data["topics"]:
             if topic not in existing_topics:
                 config["topics"].append(topic)
                 logger.info(f"Adding topic: {topic}")
 
-    # Log the keys available in issue_data for debugging
-    logger.info(f"Issue data keys: {list(issue_data.keys())}")
+    # Handle custom properties - ensure cost-centre is updated
+    if "cost_centre" in issue_data and issue_data["cost_centre"]:
+        if "custom_properties" not in config:
+            config["custom_properties"] = {}
+
+        if "cost-centre" not in config["custom_properties"]:
+            config["custom_properties"]["cost-centre"] = {
+                "required": True,
+                "pattern": "\\b\\d{6}\\b",
+                "description": "Cost centre code (exactly 6 digits)",
+            }
+
+        config["custom_properties"]["cost-centre"]["value"] = issue_data["cost_centre"]
+        logger.info(f"Setting cost-centre to: {issue_data['cost_centre']}")
+
+    # Explicitly handle default branch setting
+    if "default_branch" in issue_data and issue_data["default_branch"]:
+        config["default_branch"] = issue_data["default_branch"]
+        logger.info(f"Setting default branch to: {issue_data['default_branch']}")
 
     return config
 
 
 def update_boolean_settings(config: Dict[str, Any], issue_data: Dict[str, Any]) -> Dict[str, Any]:
     """Update boolean repository settings."""
-    # Handle all boolean settings - more flexibly handle boolean values
     bool_settings = [
         "has_issues",
         "has_projects",
@@ -273,24 +277,22 @@ def update_boolean_settings(config: Dict[str, Any], issue_data: Dict[str, Any]) 
         "allow_auto_merge",
         "delete_branch_on_merge",
         "allow_update_branch",
+        "archived",
+        "has_pages",
     ]
 
     for setting in bool_settings:
-        # Check if setting is in issue_data and can be interpreted as a boolean
         if setting in issue_data:
             bool_value = to_boolean(issue_data[setting])
-            if bool_value is not None:  # Only update if we got a valid boolean
+            if bool_value is not None:
                 config[setting] = bool_value
                 logger.info(f"Setting {setting} to {bool_value}")
-            else:
-                logger.warning(f"Ignoring non-boolean value for {setting}: {issue_data[setting]}")
 
     return config
 
 
 def update_security_settings(config: Dict[str, Any], issue_data: Dict[str, Any]) -> Dict[str, Any]:
     """Update security settings for repository."""
-    # Handle security settings if present in issue data
     if "security" in issue_data:
         if "security" not in config:
             config["security"] = {}
@@ -306,7 +308,6 @@ def update_security_settings(config: Dict[str, Any], issue_data: Dict[str, Any])
 
 def process_sync_results(results: Dict[str, Any]) -> Dict[str, Any]:
     """Process sync results to create a user-friendly response"""
-    # Extract ruleset results if available
     ruleset_errors = []
 
     if "ruleset_results" in results:
@@ -316,7 +317,6 @@ def process_sync_results(results: Dict[str, Any]) -> Dict[str, Any]:
                     f"{result.get('name', 'Unnamed ruleset')}: {result.get('message', 'Unknown error')}"
                 )
 
-    # Extract general errors
     general_errors = results.get("errors", [])
 
     if ruleset_errors or general_errors:
