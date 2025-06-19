@@ -1,343 +1,361 @@
-# Repository Management System Documentation
+
+# Repository Management System - User Guide
+
+This guide will help you use the Repository Management System to create, update, and configure GitHub repositories through issue templates.
 
 ## Table of Contents
 
-1. Overview
-2. User Guide
-3. Technical Documentation
+- [Introduction](#introduction)
+- [Getting Started](#getting-started)
+- [Creating a New Repository](#creating-a-new-repository)
+- [Updating an Existing Repository](#updating-an-existing-repository)
+- [Removing Repository Settings](#removing-repository-settings)
+- [Understanding Repository Settings](#understanding-repository-settings)
+- [Branch Protection Strategies](#branch-protection-strategies)
+- [FAQ](#faq)
+- [Troubleshooting](#troubleshooting)
 
-## Overview
+## Introduction
 
-The Repository Management System is a GitHub-based solution that allows users to create, configure, and maintain repositories through an issue-based workflow (IssueOps). This approach standardizes repository configurations, enforces best practices, and provides an audit trail for all repository changes.
+The Repository Management System allows you to create and configure GitHub repositories using issue templates rather than manual setup. This ensures consistent configuration across the organization and streamlines the repository creation process.
 
 ### Key Features
 
-- **Standardized Repository Creation**: Ensures all repositories follow organizational standards
-- **Configuration as Code**: Repository settings stored as YAML files in a central location
-- **Self-Service for Teams**: Users can request repository changes without needing admin access
-- **Enforced Branch Protection**: Standard branch protection rules applied automatically
-- **Automated Security Features**: Security scanning and vulnerability alerts configured by default
-- **Audit Trail**: All changes tracked through GitHub issues and commits
-- **Branch Rule Management**: Dedicated workflow for managing branch protection rules
+- Create new repositories with standardized settings
+- Update existing repository configurations
+- Apply branch protection rules based on best practices
+- Configure repository security settings
+- Manage repository metadata and features
 
-### How It Works
+## Getting Started
 
-1. **Issue Creation**: Users fill out a repository management issue template
-2. **Automated Processing**: GitHub Actions workflow processes the issue
-3. **Configuration Generation**: System creates/updates repository configuration files
-4. **Repository Management**: Another workflow applies configuration to actual GitHub repositories
-5. **Feedback Loop**: System comments on the issue with results
+### Accessing the Issue Templates
 
-## User Guide
+1. Go to the [platform-automations repository](https://github.com/YOUR-ORG/platform-automations)
+2. Click on the "Issues" tab
+3. Click the "New Issue" button
+4. Select one of the repository management templates:
+   - "Create New Repository"
+   - "Update Repository"
+   - "Remove Repository Settings"
 
-### Creating a New Repository
+## Creating a New Repository
 
-1. Navigate to the "Issues" tab of the platform-automations repository
-2. Click "New Issue" and select the "Repository Management" template
-3. Fill out the form with the following information:
-   - **Action**: Select "create"
-   - **Repository Name**: Enter a name (lowercase with hyphens only)
-   - **Repository Visibility**: Choose "internal" (recommended) or "private"
-   - **Topics**: Optional list of topics to categorize the repository
-   - **Feature toggles**: Configure repository features as needed
+To create a new repository:
+
+1. Open the "Create New Repository" issue template
+2. Fill out the required fields (marked with *)
+3. Submit the issue
+4. The system will process your request and comment on the issue with the results
+
+### Required Fields
+
+| Field | Description | Example |
+|-------|-------------|---------|
+| Repository Name* | Name of the new repository (lowercase, hyphenated) | `my-new-service` |
+| Repository Description | Brief description of the repository | `Backend service for user authentication` |
+| Repository Visibility* | Public, Internal, or Private | `Internal` |
+| Branch Strategy* | Approach to branch management | `Git Flow` |
+
+### Optional Fields
+
+| Field | Description | Default |
+|-------|-------------|---------|
+| Template Repository | Repository to use as a template | None |
+| Topics | Tags to categorize the repository | None |
+| Has Issues | Enable GitHub Issues | True |
+| Has Projects | Enable GitHub Projects | False |
+| Has Wiki | Enable GitHub Wiki | True |
+| Has Discussions | Enable GitHub Discussions | False |
+| Security Settings | Vulnerability alerts and automated fixes | Both enabled |
+
+### Example: Creating a New Microservice Repository
+
+```
+### Repository Name
+api-authentication-service
+
+### Repository Description
+Authentication microservice for the customer portal
+
+### Repository Visibility
+Internal
+
+### Branch Strategy
+Git Flow (main/develop with feature, release, and hotfix branches)
+
+### Template Repository
+service-template
+
+### Topics
+microservice, authentication, api, java, spring-boot
+
+### Has Issues
+true
+
+### Has Wiki
+true
+
+### Security Settings
+- Enable vulnerability alerts: true
+- Enable automated security fixes: true
+```
+
+## Updating an Existing Repository
+
+To update an existing repository:
+
+1. Open the "Update Repository" issue template
+2. Fill out the repository name and the fields you want to update
+3. Leave other fields blank or with "_No response_" to keep current settings
 4. Submit the issue
+5. The system will process your request and comment on the issue with the results
 
-Example:
-
-```
-Action: create
-Repository Name: my-new-service
-Repository Visibility: internal
-Topics:
-- project
-- Technology
-- group-detail
-Enable Issues: true
-Enable Projects: true
-Enable Wiki: false
-```
-
-### Updating an Existing Repository
-
-1. Navigate to the "Issues" tab of the platform-automations repository
-1. Navigate to the "Issues" tab of the platform-automations repository
-2. Click "New Issue" and select the "Repository Management" template
-3. Fill out the form with the following information:
-   - **Action**: Select "update"
-   - **Repository Name**: Enter the exact name of the existing repository
-   - **Parameters to update**: Only fill in fields you want to change
-4. Submit the issue
-
-Example:
+### Example: Updating Repository Settings
 
 ```
-Action: update
-Repository Name: existing-service
-Topics:
-- updated-topic
-- api-service
-Enable Projects: false
-Enable Vulnerability Alerts: true
+### Repository Name
+legacy-application
+
+### Action
+update
+
+### Repository Description
+Updated description for the legacy application with new contact information
+
+### Has Issues
+true
+
+### Has Projects
+false
+
+### Topics
+legacy, maintenance, java, spring
 ```
 
-### Managing Branch Protection Rules
+## Removing Repository Settings
 
-1. Navigate to the "Issues" tab of the platform-automations repository
-2. Click "New Issue" and select the "Repository Management" template
-3. Fill out the form with the following information:
-   - **Action**: Select "manage-branch-rules"
-   - **Repository Name**: Enter the exact name of the existing repository
-   - **Branch Name**: Specify the branch to protect (e.g., "main", "develop", or pattern "feature/*")
-   - **Branch Rule Type**: Choose a pre-defined rule set or "custom"
-   - **Protection Settings**: Configure specific protection settings as needed
-4. Submit the issue
+To remove specific settings from a repository:
 
-Example:
+1. Open the "Remove Repository Settings" issue template
+2. Fill out the repository name and the settings you want to remove
+3. Submit the issue
+4. The system will process your request and comment on the issue with the results
+
+Note: This does not delete the repository, only removes specific settings.
+
+### Example: Removing Topics and Branch Protection
 
 ```
-Action: manage-branch-rules
-Repository Name: existing-service
-Branch Name: main
-Branch Rule Type: strict-protection
-Require Pull Request Approvals: 2
-Require Code Owner Review: true
-Required Status Checks:
+### Repository Name
+test-project
+
+### Action
+remove
+
+### Topics
+outdated-tag, old-framework
+
+### Branch Protection Rule Name
+strict-main-protection
+```
+
+## Understanding Repository Settings
+
+### Basic Settings
+
+| Setting | Description |
+|---------|-------------|
+| Description | A brief explanation of the repository's purpose |
+| Visibility | Controls who can see the repository (Public, Internal, Private) |
+| Topics | Tags to categorize and make the repository discoverable |
+
+### Features
+
+| Feature | Description |
+|---------|-------------|
+| Issues | Enables GitHub Issues for tracking work |
+| Projects | Enables GitHub Projects for project management |
+| Wiki | Enables GitHub Wiki for documentation |
+| Discussions | Enables GitHub Discussions for community conversations |
+
+### Pull Request Settings
+
+| Setting | Description |
+|---------|-------------|
+| Allow Squash Merge | Allows squashing commits when merging PRs |
+| Allow Merge Commit | Allows standard merge commits |
+| Allow Rebase Merge | Allows rebasing and merging PRs |
+| Allow Auto Merge | Allows PRs to be merged automatically when requirements are met |
+| Delete Branch on Merge | Automatically deletes head branches after merging |
+| Allow Update Branch | Shows a button to update a PR branch when the base branch changes |
+
+### Security Settings
+
+| Setting | Description |
+|---------|-------------|
+| Enable Vulnerability Alerts | Receive alerts for known vulnerabilities in dependencies |
+| Enable Automated Security Fixes | Automatically create PRs to resolve vulnerabilities |
+
+## Branch Protection Strategies
+
+The system supports several branch protection strategies, each with its own set of rules and workflows.
+
+### GitHub Flow
+
+A simplified workflow with a single main branch and feature branches.
+
+- **Main Branch**: Protected with required reviews and status checks
+- **Feature Branches**: Named with `feature/*` pattern
+
+Best for: Small teams, continuous deployment, web applications
+
+### Git Flow
+
+A more structured workflow with main, develop, feature, release, and hotfix branches.
+
+- **Main/Master Branch**: Heavily protected, represents production code
+- **Develop Branch**: Integration branch for features
+- **Feature Branches**: For new features, named with `feature/*` pattern
+- **Release Branches**: For release preparation, named with `release/x.y.z` pattern
+- **Hotfix Branches**: For urgent fixes, named with `hotfix/x.y.z` pattern
+
+Best for: Larger teams, scheduled releases, complex applications
+
+### Trunk-Based Development
+
+A workflow centered around a single "trunk" branch with short-lived feature branches.
+
+- **Trunk/Main Branch**: Protected with required reviews and linear history
+- **Feature Branches**: Very short-lived, named with `fb/*` pattern
+
+Best for: CI/CD environments, high-velocity teams
+
+### Feature Branch Workflow
+
+A flexible workflow where features are developed in dedicated branches.
+
+- **Main Branch**: Protected with required reviews and status checks
+- **Feature Branches**: Named with various prefixes: `feature/`, `bugfix/`, `improvement/`, etc.
+
+Best for: Teams transitioning from other workflows, mixed development approaches
+
+### GitLab Flow
+
+A workflow that extends GitHub Flow with environment branches.
+
+- **Main Branch**: Protected, represents the latest development code
+- **Production Branch**: Represents production code
+- **Environment Branches**: For staging, pre-production, etc.
+- **Feature Branches**: Named with `feature/*` pattern
+
+Best for: Continuous delivery with multiple environments
+
+### Release Flow
+
+A workflow focused on release management.
+
+- **Main Branch**: Heavily protected, always releasable
+- **Release Branches**: Named with `release/date.version` pattern
+- **Feature Branches**: Named with `feature/*` pattern
+
+Best for: Teams with complex release requirements
+
+## Custom Branch Protection Rules
+
+For specific protection needs, you can create custom branch protection rules:
+
+1. Select "Custom" as the branch strategy
+2. Fill out the "Branch Protection" section of the issue template
+3. Specify the branch name pattern, required approvals, and other settings
+
+### Example: Custom Branch Protection
+
+```
+### Branch Protection Rule Name
+production-branch-protection
+
+### Branch Rule Type
+strict-protection
+
+### Branch Includes
+main
+production
+
+### Require Pull Request Approvals
+2
+
+### Require Code Owner Review
+true
+
+### Dismiss Stale Reviews
+true
+
+### Require Status Checks
+true
+
+### Required Status Check List
 - build
 - test
 - security-scan
 ```
 
-#### Available Branch Rule Types
+## FAQ
 
-| Rule Type | Description |
-|-----------|-------------|
-| standard-protection | Basic protection with 1 required review |
-| strict-protection | Strict protection with 2 required reviews, signed commits, and more |
-| custom | Configure protection settings individually |
+### General Questions
 
-### Available Configuration Options
+**Q: Who can create or update repositories?**
+A: Users with appropriate permissions on the platform-automations repository can create issues. The actual operations are performed by a GitHub App with organization-level permissions.
 
-| Option | Description | Default |
-|--------|-------------|---------|
-| Repository Name | Name of the repository (lowercase with hyphens) | Required |
-| Repository Visibility | Access level - internal (visible to org) or private | internal |
-| Topics | List of topics to categorize the repository | [] |
-| Enable Issues | Turn on GitHub Issues for the repository | true |
-| Enable Projects | Turn on GitHub Projects for the repository | true |
-| Enable Wiki | Turn on GitHub Wiki for the repository | true |
-| Allow Squash Merge | Allow squash merging of pull requests | true |
-| Allow Merge Commit | Allow standard merge commits | true |
-| Allow Rebase Merge | Allow rebase merging of pull requests | true |
-| Allow Auto Merge | Allow auto-merging of pull requests | false |
-| Delete Branch on Merge | Automatically delete head branches after merging | true |
-| Enable Vulnerability Alerts | Enable Dependabot vulnerability alerts | true |
-| Enable Automated Security Fixes | Enable automated security fixes | true |
-| Branch Name | Name of branch to protect | Required |
-| Branch Rule Type | Pre-defined protection level | custom |
-| Require Pull Request Approvals | Number of required reviews | 1 |
-| Require Code Owner Review | Require review from code owners | false |
-| Dismiss Stale Reviews | Dismiss reviews when new commits are pushed | true |
-| Require Status Checks | Require status checks to pass | false |
-| Required Status Checks | List of required status checks | [] |
-| Restrict Push Access | Require signed commits for pushing | false |
+**Q: Can I delete a repository using this system?**
+A: No, the system does not support repository deletion for safety reasons. Contact an organization administrator to delete a repository.
 
-### Branch Protection Rules (Applied Automatically)
+**Q: How long does it take to process a repository request?**
+A: Typically, requests are processed within a few minutes. You'll receive a comment on your issue when the operation is complete.
 
-All repositories get the following branch protection rules automatically:
+### Repository Settings
 
-1. **Main Branch Protection**:
-   - Requires 2 approving reviews
-   - Requires status checks to pass
-   - Prevents force pushes
-   - Requires signed commits
+**Q: What is the difference between Internal and Private visibility?**
+A: Internal repositories are visible to all members of your organization, while Private repositories are only visible to users explicitly granted access.
 
-2. **Development Branch Protection**:
-   - Requires 1 approving review
-   - Prevents branch deletion
+**Q: Can I change the visibility of a repository later?**
+A: Yes, you can update the visibility using the "Update Repository" issue template.
 
-3. **Feature Branch Protection**:
-   - Enforces naming convention (`feature/Feature-name`)
-   - Requires 1 approving review
+**Q: What happens if I don't specify a branch strategy?**
+A: The system will default to Git Flow, which provides a comprehensive branch protection setup.
 
-4. **Hotfix Branch Protection**:
-   - Enforces naming convention (`hotfix/JIRA-123`)
-   - Requires 2 approving reviews
+### Branch Protection
 
-### Troubleshooting
+**Q: What does "strict-protection" provide that "standard-protection" doesn't?**
+A: Strict protection adds additional safeguards such as required linear history, signed commits, and more reviewers.
 
-**Issue: Repository configuration not updating**
+**Q: Can I customize branch protection beyond the provided strategies?**
+A: Yes, select "Custom" as the branch strategy and fill out the branch protection section with your specific requirements.
 
-- Check issue comments for error messages
-- Verify you're using the correct repository name
-- Ensure you have proper permissions within the organization
+**Q: How do I protect multiple branches with different rules?**
+A: Create multiple branch protection rules by submitting separate update issues for each rule, or select a branch strategy that includes protection for multiple branches.
 
-**Issue: Invalid repository name error**
+## Troubleshooting
 
-- Repository names must be lowercase with hyphens or underscores
-- Names must start with a letter or number
+### Common Issues
 
-**Issue: Branch protection not applied**
+**Issue**: Repository creation fails with an error about the name.
+**Solution**: Ensure the repository name follows GitHub's naming convention (lowercase, hyphens, no special characters).
 
-- Branch protection is only applied after the repository exists
-- Main/master branch must exist before protection is applied
+**Issue**: Branch protection rules don't appear to be applied.
+**Solution**: Check that you've specified the correct branch names and that the branches exist in the repository.
 
-## Technical Documentation
+**Issue**: Update operation doesn't change a setting.
+**Solution**: Make sure you've explicitly specified the setting you want to change. Leaving a field blank or with "_No response_" will keep the current value.
 
-### System Architecture
+### Getting Help
 
-The Repository Management System uses several components to create a complete workflow:
+If you encounter issues not covered in this guide:
 
-1. **Issue Template**: Collects user input (`repository-management.yml`)
-2. **Processing Workflow**: GitHub Actions workflow to handle issues (`process-repository-issue.yml`)
-3. **Processing Script**: Python script that parses issues and creates configs (`process_repository_issue.py`)
-4. **Configuration Storage**: YAML files stored in repository.yml
-5. **Repository Workflow**: Applies configurations to GitHub (`repository-manage.yml`)
-6. **Repository Scripts**: Python scripts that interact with GitHub API (`repository_creation.py`, repository_manage.py)
-
-```
-┌────────────────┐    ┌─────────────────────┐    ┌───────────────┐
-│ Issue Template │───►│ Processing Workflow │───►│ Config Files  │
-└────────────────┘    └─────────────────────┘    └───────┬───────┘
-                               │                         │
-                      ┌────────▼──────────┐     ┌────────▼────────┐
-                      │ Processing Script │     │ Repository      │
-                      └─────────┬─────────┘     │ Workflow        │
-                                │               └────────┬────────┘
-                                │                        │
-                                ▼                        ▼
-                      ┌─────────────────────────────────────────┐
-                      │             GitHub API                  │
-                      └─────────────────────────────────────────┘
-```
-
-### Repository Configuration Format
-
-Repository configurations are stored as YAML files with the following structure:
-
-```yaml
-repository:
-  name: repository-name
-  visibility: internal
-  topics: [topic1, topic2]
-  has_issues: true
-  has_projects: true
-  has_wiki: true
-  allow_squash_merge: true
-  allow_merge_commit: true
-  allow_rebase_merge: true
-  allow_auto_merge: false
-  delete_branch_on_merge: true
-  allow_update_branch: true
-  security:
-    enableVulnerabilityAlerts: true
-    enableAutomatedSecurityFixes: true
-  rulesets:
-    - name: main-branch-protection
-      target: branch
-      enforcement: active
-      conditions:
-        ref_name:
-          include: ["refs/heads/main"]
-          exclude: []
-      rules:
-        - type: pull_request
-          parameters:
-            dismiss_stale_reviews_on_push: true
-            require_code_owner_review: true
-            required_approving_review_count: 2
-            required_review_thread_resolution: true
-        - type: required_status_checks
-          parameters:
-            strict_required_status_checks_policy: true
-            required_status_checks:
-              - context: build
-              - context: test
-```
-
-### Key Files and Components
-
-**Issue Template**:
-- repository-management.yml: Defines form fields for repository management
-
-**Workflows**:
-- process-repository-issue.yml: Processes issues and creates config files
-- repository-manage.yml: Applies configuration to GitHub repositories
-
-**Scripts**:
-- process_repository_issue.py: Parses issues and generates configs
-- repository_manage.py: Updates existing repositories
-- repository_creation.py: Creates new repositories
-
-**Configuration**:
-- default_repository_config.yml: Default settings template
-- repository.yml: Per-repository configurations
-
-### Processing Flow
-
-1. User creates issue using the repository management template
-2. process-repository-issue.yml workflow triggers on issue creation/edit
-3. process_repository_issue.py script:
-   - Parses issue body
-   - Validates input data
-   - Loads default or existing configuration
-   - Updates configuration with issue data
-   - Updates branch protection rules if specified
-   - Saves configuration to repository.yml
-   - Comments on the issue with results
-4. repository-manage.yml workflow triggers on changes to config files
-5. repository_manage.py script:
-   - Identifies changed configuration files
-   - Applies changes to GitHub repositories via API
-   - Updates branch protection rules
-
-### Branch Protection Management
-
-The system supports managing branch protection rules through:
-
-1. **Pre-defined rule templates**: Standard and strict protection levels
-2. **Custom rule configuration**: Fine-grained control of protection settings
-3. **Branch pattern support**: Apply rules to specific branches or branch patterns
-
-When processing a "manage-branch-rules" action, the system:
-1. Checks if rules already exist for the specified branch
-2. Creates or updates the ruleset for that branch
-3. Configures all requested protection settings
-4. Saves the configuration and applies changes to GitHub
-
-### Adding New Repository Settings
-
-To add support for new GitHub repository settings:
-
-1. Update repository-management.yml with new form fields
-2. Modify process_repository_issue.py to handle new fields in `update_config_from_issue_data()`
-3. Update repository_manage.py to apply new settings via GitHub API
-
-### Integration Points
-
-- **GitHub REST API**: Used for repository management operations
-- **PyGithub Library**: Primary interface for repository operations
-- **GitHub Actions**: Workflow automation system
-- **GitHub Issues**: User interface for requesting changes
-
-### Error Handling
-
-The system includes comprehensive error handling:
-
-1. Input validation with user-friendly error messages
-2. Safe loading of YAML configurations
-3. GitHub API error handling with retries
-4. Rate limit detection and management
-5. Issue comments for feedback on errors
-
-## Best Practices for Extending the System
-
-1. **Maintain Configuration Format**: Keep the YAML structure consistent
-2. **Add Validation**: Validate all user inputs thoroughly
-3. **Test API Changes**: GitHub API can change, test carefully before deployment
-4. **Document New Features**: Update documentation when adding options
-5. **Handle Errors Gracefully**: Always provide clear error messages to users
-6. **Preserve Existing Settings**: Only update fields specified by the user
+1. Check the error message in the issue comment for specific details
+2. Review this guide for relevant sections
+3. Contact the platform team for assistance through the support channel
 
 ---
 
-This repository management system streamlines GitHub repository administration, enforces organizational standards, and enables self-service while maintaining proper governance. For additional assistance or feature requests, please create an issue in the platform-automations repository.
+For additional assistance, please contact the platform team.
