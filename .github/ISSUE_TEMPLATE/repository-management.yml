@@ -57,6 +57,16 @@ body:
     validations:
       required: false
 
+  - type: input
+    id: cost_centre
+    attributes:
+      label: Cost Centre
+      description: Cost centre code (exactly 6 digits) - required for compliance
+      placeholder: "123456"
+    validations:
+      required: false
+      pattern: "\\b\\d{6}\\b"
+
   - type: textarea
     id: topics
     attributes:
@@ -67,12 +77,30 @@ body:
         - topic2
     validations:
       required: false
+
   - type: markdown
     attributes:
       value: | 
-        ## Optional selections
-        If not changed the default configurations will be used. 
-        These can be changed after creation using the action update in this issue template.
+        ## Repository Configuration
+        Configure additional repository settings and features.
+
+  - type: dropdown
+    id: default_branch
+    attributes:
+      label: Default Branch
+      description: Set the default branch name
+      options:
+        - main
+        - master
+        - develop
+    validations:
+      required: false
+
+  - type: markdown
+    attributes:
+      value: | 
+        ## Optional Repository Settings
+        Configure additional repository features and permissions.
 
   - type: dropdown
     id: has_issues
@@ -112,6 +140,28 @@ body:
     attributes:
       label: Has Wiki
       description: Enable wiki for the repository
+      options:
+        - "true"
+        - "false"
+    validations:
+      required: false
+
+  - type: dropdown
+    id: has_pages
+    attributes:
+      label: Has GitHub Pages
+      description: Enable GitHub Pages for the repository
+      options:
+        - "true"
+        - "false"
+    validations:
+      required: false
+
+  - type: dropdown
+    id: archived
+    attributes:
+      label: Archived
+      description: Archive this repository (read-only)
       options:
         - "true"
         - "false"
@@ -168,6 +218,12 @@ body:
     validations:
       required: false
 
+  - type: markdown
+    attributes:
+      value: | 
+        ## Security Settings
+        Configure security features for the repository.
+
   - type: dropdown
     id: enable_vulnerability_alerts
     attributes:
@@ -188,17 +244,51 @@ body:
     validations:
       required: false
 
+  - type: dropdown
+    id: enable_secret_scanning
+    attributes:
+      label: Enable Secret Scanning
+      options:
+        - "true"
+        - "false"
+    validations:
+      required: false
+
+  - type: dropdown
+    id: enable_secret_scanning_push_protection
+    attributes:
+      label: Enable Secret Scanning Push Protection
+      options:
+        - "true"
+        - "false"
+    validations:
+      required: false
+
+  - type: dropdown
+    id: enable_dependency_review
+    attributes:
+      label: Enable Dependency Review
+      options:
+        - "true"
+        - "false"
+    validations:
+      required: false
+
+  - type: dropdown
+    id: enable_code_scanning
+    attributes:
+      label: Enable Code Scanning
+      options:
+        - "true"
+        - "false"
+    validations:
+      required: false
+
   - type: markdown
     attributes:
       value: |
         ## Branch Strategy Selection
         Select a predefined branch strategy or use custom branch protection rules below.
-        Each strategy comes with predefined branch protection rules based on the workflow pattern.
-
-        When using certain branch strategies, default branches will be automatically created:
-        - Git Flow: `develop` branch created from `main`
-        - GitLab Flow: `production` and `staging` branches created from `main`
-        - Trunk-based: `trunk` branch if `main` doesn't exist
 
   - type: dropdown
     id: branch_strategy
@@ -221,12 +311,6 @@ body:
       value: |
         ## Custom Branch Protection Rules
         **The following fields are only used when "custom" is selected as the Branch Strategy above.**
-        
-        If you've selected any predefined branch strategy other than "custom", these settings will be ignored.
-        You can use this section to:
-        - Create new branch rules when using the "custom" strategy
-        - Remove specific branch rules when using the "remove" action
-        - Update specific branch rules when using the "update" action with "custom" strategy
 
   - type: input
     id: branch_name
@@ -312,6 +396,17 @@ body:
     id: require_status_checks
     attributes:
       label: Require Status Checks
+      options:
+        - "true"
+        - "false"
+    validations:
+      required: false
+
+  - type: dropdown
+    id: do_not_enforce_on_create
+    attributes:
+      label: Allow initial branch creation without status checks
+      description: When enabled, branches can be created without waiting for status checks
       options:
         - "true"
         - "false"
