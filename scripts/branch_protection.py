@@ -94,13 +94,28 @@ def create_branch_protection_ruleset(
     rules = []
 
     # Required status checks
-    if issue_data.get("require_status_checks") is True and "required_status_check_list" in issue_data:
+    if issue_data.get("require_status_checks") is True:
+        # Parse the status checks list to ensure it's in the correct format
+        status_checks = []
+        if "required_status_checks_list" in issue_data:
+            if isinstance(issue_data["required_status_checks_list"], str):
+                # Parse the list but keep the proper format
+                raw_checks = parse_list_section(issue_data["required_status_checks_list"])
+                status_checks = [{"context": check} for check in raw_checks]
+            elif isinstance(issue_data["required_status_checks_list"], list):
+                # Format list items as context objects
+                status_checks = [
+                    {"context": check} if isinstance(check, str) else check
+                    for check in issue_data["required_status_checks_list"]
+                ]
+
         rules.append(
             {
                 "type": "required_status_checks",
                 "parameters": {
                     "strict_required_status_checks_policy": True,
-                    "required_status_checks": issue_data["required_status_check_list"],
+                    "do_not_enforce_on_create": issue_data.get("do_not_require_status_checks_on_creation", False),
+                    "required_status_checks": status_checks,
                 },
             }
         )
@@ -153,6 +168,22 @@ def create_branch_protection_ruleset(
         rules.append({"type": "deletion"})
         rules.append({"type": "required_linear_history"})
         rules.append({"type": "required_signatures"})
+    elif rule_type == "custom":
+        # For custom rule type, add rules based on user selections
+        # Add PR review rule if approvals are required
+        if not any(rule.get("type") == "pull_request" for rule in rules) and issue_data.get(
+            "require_code_owner_review", False
+        ):
+            # Create a custom PR rule based on the selections
+            pr_params = {
+                "dismiss_stale_reviews_on_push": issue_data.get("dismiss_stale_reviews", False),
+                "require_code_owner_review": issue_data.get("require_code_owner_review", False),
+                "require_last_push_approval": True,
+                "required_approving_review_count": int(issue_data.get("require_approvals", 0) or 1),
+                "required_review_thread_resolution": True,
+            }
+            rules.append({"type": "pull_request", "parameters": pr_params})
+            logger.info(f"Adding custom PR rule to ruleset {name}")
 
     ruleset["rules"] = rules
     return ruleset
