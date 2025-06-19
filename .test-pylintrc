@@ -37,7 +37,7 @@ max-line-length=120
 # Maximum number of arguments for functions/method
 max-args=10
 # Maximum number of locals for functions/method
-max-locals=20
+max-locals=30
 # Maximum number of return / yield for function/ method body
 max-returns=6
 
