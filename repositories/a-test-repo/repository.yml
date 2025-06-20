@@ -1,0 +1,118 @@
+name: a-test-repo
+description: repo for testing creation and management
+visibility: private
+branch_strategy: git-flow
+topics:
+  - test-repo
+  - testing
+custom_properties:
+  cost-centre:
+    value: '123456'
+    required: true
+    pattern: \b\d{6}\b
+    description: Cost centre code (exactly 6 digits)
+has_issues: true
+has_projects: true
+has_wiki: true
+has_discussions: true
+allow_squash_merge: true
+allow_merge_commit: true
+allow_rebase_merge: true
+allow_auto_merge: false
+delete_branch_on_merge: true
+allow_update_branch: true
+default_branch: main
+security:
+  enableVulnerabilityAlerts: true
+  enableAutomatedSecurityFixes: true
+  enableSecretScanning: true
+  enableSecretScanningPushProtection: true
+  enableDependencyReview: true
+  enableCodeScanning: true
+rulesets:
+  - name: gitflow-main-protection
+    target: branch
+    enforcement: active
+    conditions:
+      ref_name:
+        include:
+          - refs/heads/main
+          - refs/heads/master
+        exclude: []
+    rules:
+      - type: pull_request
+        parameters:
+          dismiss_stale_reviews_on_push: true
+          require_code_owner_review: true
+          required_approving_review_count: 2
+          required_review_thread_resolution: true
+      - type: deletion
+      - type: required_signatures
+  - name: gitflow-develop-protection
+    target: branch
+    enforcement: active
+    conditions:
+      ref_name:
+        include:
+          - refs/heads/develop
+        exclude: []
+    rules:
+      - type: pull_request
+        parameters:
+          dismiss_stale_reviews_on_push: true
+          require_code_owner_review: true
+          required_approving_review_count: 1
+          required_review_thread_resolution: true
+      - type: deletion
+  - name: gitflow-release-protection
+    target: branch
+    enforcement: active
+    conditions:
+      ref_name:
+        include:
+          - refs/heads/release/*
+        exclude: []
+    rules:
+      - type: pull_request
+        parameters:
+          dismiss_stale_reviews_on_push: true
+          require_code_owner_review: true
+          required_approving_review_count: 1
+          required_review_thread_resolution: true
+      - type: branch_name_pattern
+        parameters:
+          pattern: ^release/[0-9]+\.[0-9]+\.[0-9]+$
+          operator: regex
+  - name: gitflow-feature-protection
+    target: branch
+    enforcement: active
+    conditions:
+      ref_name:
+        include:
+          - refs/heads/feature/*
+        exclude:
+          - refs/heads/feature/push_new_pr_update*
+    rules:
+      - type: branch_name_pattern
+        parameters:
+          pattern: ^feature/[A-Za-z0-9-]+$
+          operator: regex
+  - name: gitflow-hotfix-protection
+    target: branch
+    enforcement: active
+    conditions:
+      ref_name:
+        include:
+          - refs/heads/hotfix/*
+        exclude: []
+    rules:
+      - type: pull_request
+        parameters:
+          dismiss_stale_reviews_on_push: true
+          require_code_owner_review: true
+          required_approving_review_count: 1
+          required_review_thread_resolution: true
+      - type: branch_name_pattern
+        parameters:
+          pattern: ^hotfix/[0-9]+\.[0-9]+\.[0-9]+$
+          operator: regex
