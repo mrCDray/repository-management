@@ -50,10 +50,10 @@ body:
     id: visibility
     attributes:
       label: Repository Visibility
-      description: Visibility of the repository (for create or update actions)
+      description: Visibility of the repository (for create or update actions) # Internal is for enterpise accounts only
       options:
-        - internal
         - private
+        - public
     validations:
       required: false
 
