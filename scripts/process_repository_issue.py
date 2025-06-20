@@ -19,6 +19,7 @@ from repository_utils import (
     validate_repository_name,
     process_sync_results,
     get_boolean_setting,
+    to_boolean,
 )
 
 from branch_protection import (
@@ -137,6 +138,12 @@ def parse_issue_body(body: str) -> Dict[str, Any]:
     else:
         logger.warning("No description or repository_description field found in issue body")
 
+    # Special handling for boolean fields
+    if "do_not_require_status_checks_on_creation" in result:
+        result["do_not_require_status_checks_on_creation"] = to_boolean(
+            result["do_not_require_status_checks_on_creation"]
+        )
+
     # Special handling for branch protection rules section
     if "branch_name" in result and "branch_rule_type" in result:
         branch_name = result.get("branch_name")
@@ -174,6 +181,9 @@ def apply_field_mappings(result: Dict[str, Any]) -> None:
         "repository_description": "description",  # Add mapping for repository_description
         "enable_vulnerability_alerts": "_security_vulnerability_alerts",
         "enable_automated_security_fixes": "_security_automated_fixes",
+        "branch_protection_rule_name": "branch_name",
+        "require_pull_request_approvals": "require_approvals",
+        "allow_initial_branch_creation_without_status_checks": "do_not_require_status_checks_on_creation",
     }
 
     for old_key, new_key in field_mapping.items():
@@ -291,7 +301,6 @@ def _prepare_repository_config(repo_name: str, issue_data: Dict[str, Any]) -> Di
 
     # Improved description handling - always include description even if empty
     if "description" in issue_data:
-        # Include description regardless of whether it's empty
         repo_config["description"] = issue_data["description"]
         logger.info(f"Setting description to: '{issue_data['description']}'")
     elif "description" in default_config:
@@ -302,6 +311,28 @@ def _prepare_repository_config(repo_name: str, issue_data: Dict[str, Any]) -> Di
         repo_config["template"] = issue_data["template"]
     elif "template" in default_config:
         repo_config["template"] = default_config["template"]
+
+    # Add default branch if specified
+    if "default_branch" in issue_data and issue_data["default_branch"]:
+        repo_config["default_branch"] = issue_data["default_branch"]
+        logger.info(f"Setting default branch to: {issue_data['default_branch']}")
+    elif "default_branch" in default_config:
+        repo_config["default_branch"] = default_config["default_branch"]
+        logger.info(f"Using default branch from default config: {default_config['default_branch']}")
+
+    # Handle cost-centre custom property
+    if "cost_centre" in issue_data and issue_data["cost_centre"]:
+        if "custom_properties" not in repo_config:
+            repo_config["custom_properties"] = {}
+        repo_config["custom_properties"]["cost-centre"] = {
+            "value": issue_data["cost_centre"],
+            "required": True,
+            "pattern": "\\b\\d{6}\\b",
+            "description": "Cost centre code (exactly 6 digits)",
+        }
+        logger.info(f"Setting cost-centre to: {issue_data['cost_centre']}")
+    elif "custom_properties" in default_config:
+        repo_config["custom_properties"] = default_config["custom_properties"]
 
     # Add boolean settings
     _add_boolean_settings(repo_config, issue_data, default_config)
@@ -481,45 +512,14 @@ def update_repository(
             existing_config = load_default_config().get("repository", {}).copy()
             existing_config["name"] = repo_name
 
-        # Update config with issue data (only for fields explicitly set)
-        updated_config = existing_config.copy()
+        # Prepare updated configuration by merging existing config with issue data
+        updated_config = _prepare_update_config(existing_config, issue_data)
 
-        # Apply updates to configuration
-        updated_config = update_basic_settings(updated_config, issue_data)
-        updated_config = update_boolean_settings(updated_config, issue_data)
-        updated_config = update_security_settings(updated_config, issue_data)
+        # Handle branch strategy configuration
+        updated_config = _handle_branch_strategy(updated_config, issue_data)
 
-        # Load default config for branch strategies
-        default_config = load_default_config().get("repository", {})
-
-        # Handle branch strategy - ensure it's always in the config
-        if "branch_strategy" in issue_data and issue_data["branch_strategy"] not in (None, "", "_No response_"):
-            branch_strategy = issue_data["branch_strategy"]
-            # Clean up format (remove parenthetical info)
-            if isinstance(branch_strategy, str) and "(" in branch_strategy:
-                branch_strategy = branch_strategy.split("(")[0].strip()
-
-            updated_config["branch_strategy"] = branch_strategy
-            logger.info(f"Updating branch strategy to: {branch_strategy}")
-            updated_config = select_branch_strategy_ruleset(updated_config, issue_data, default_config)
-        elif "branch_strategy" not in updated_config:
-            # Default to git-flow if branch_strategy is missing
-            updated_config["branch_strategy"] = "git-flow"
-            logger.info("Setting git-flow as default branch strategy")
-            # Apply git-flow branch strategy ruleset
-            updated_config = select_branch_strategy_ruleset(
-                updated_config, {"branch_strategy": "git-flow"}, default_config
-            )
-
-        # For update action: Create new rulesets or update existing ones if using custom strategy
-        branch_strategy = updated_config.get("branch_strategy", "")
-        if isinstance(branch_strategy, str) and branch_strategy.startswith("custom"):
-            # Only apply custom rulesets if strategy is "custom"
-            updated_config = update_rulesets(updated_config, issue_data)
-        elif "branch_name" in issue_data and issue_data["branch_name"]:
-            # Allow custom ruleset updates or removals regardless of strategy for update/remove actions
-            if issue_data.get("action") in ("update", "remove"):
-                updated_config = update_rulesets(updated_config, issue_data)
+        # Handle ruleset configuration
+        updated_config = _handle_rulesets(updated_config, issue_data)
 
         # Log the final configuration that will be applied
         logger.info(f"Final updated configuration: {json.dumps(updated_config, default=str)}")
@@ -555,6 +555,106 @@ def update_repository(
     except Exception as e:
         logger.error(f"Error updating repository: {e}", exc_info=True)
         return {"status": "error", "message": f"Failed to update repository: {str(e)}"}
+
+
+def _prepare_update_config(existing_config: Dict[str, Any], issue_data: Dict[str, Any]) -> Dict[str, Any]:
+    """Prepare configuration for repository update by merging existing config with issue data."""
+    updated_config = existing_config.copy()
+
+    # Explicitly handle default branch if specified
+    if "default_branch" in issue_data and issue_data["default_branch"]:
+        updated_config["default_branch"] = issue_data["default_branch"]
+        logger.info(f"Setting default branch to: {issue_data['default_branch']}")
+
+    # Apply updates to configuration
+    updated_config = update_basic_settings(updated_config, issue_data)
+    updated_config = update_boolean_settings(updated_config, issue_data)
+    updated_config = update_security_settings(updated_config, issue_data)
+
+    # Handle cost-centre custom property update
+    if "cost_centre" in issue_data and issue_data["cost_centre"]:
+        if "custom_properties" not in updated_config:
+            updated_config["custom_properties"] = {}
+
+        # If cost-centre already exists, update it; otherwise create it
+        if "cost-centre" not in updated_config["custom_properties"]:
+            updated_config["custom_properties"]["cost-centre"] = {
+                "required": True,
+                "pattern": "\\b\\d{6}\\b",
+                "description": "Cost centre code (exactly 6 digits)",
+            }
+
+        # Always update the value
+        updated_config["custom_properties"]["cost-centre"]["value"] = issue_data["cost_centre"]
+        logger.info(f"Updating cost-centre to: {issue_data['cost_centre']}")
+
+    return updated_config
+
+
+def _handle_branch_strategy(config: Dict[str, Any], issue_data: Dict[str, Any]) -> Dict[str, Any]:
+    """Handle branch strategy configuration updates."""
+    # Load default config for branch strategies
+    default_config = load_default_config().get("repository", {})
+
+    # Handle branch strategy - ensure it's always in the config
+    if "branch_strategy" in issue_data and issue_data["branch_strategy"] not in (None, "", "_No response_"):
+        branch_strategy = issue_data["branch_strategy"]
+        # Clean up format (remove parenthetical info)
+        if isinstance(branch_strategy, str) and "(" in branch_strategy:
+            branch_strategy = branch_strategy.split("(")[0].strip()
+
+        config["branch_strategy"] = branch_strategy
+        logger.info(f"Updating branch strategy to: {branch_strategy}")
+        config = select_branch_strategy_ruleset(config, issue_data, default_config)
+    elif "branch_strategy" not in config:
+        # Default to git-flow if branch_strategy is missing
+        config["branch_strategy"] = "git-flow"
+        logger.info("Setting git-flow as default branch strategy")
+        # Apply git-flow branch strategy ruleset
+        config = select_branch_strategy_ruleset(config, {"branch_strategy": "git-flow"}, default_config)
+
+    return config
+
+
+def _handle_rulesets(config: Dict[str, Any], issue_data: Dict[str, Any]) -> Dict[str, Any]:
+    """Handle ruleset configuration updates."""
+    branch_strategy = config.get("branch_strategy", "")
+
+    # For update action: Create new rulesets or update existing ones if using custom strategy
+    if isinstance(branch_strategy, str) and branch_strategy.startswith("custom"):
+        # Check if we need to create a new ruleset based on branch protection fields
+        if "branch_name" in issue_data and issue_data["branch_name"] and "branch_rule_type" in issue_data:
+            branch_name = issue_data.get("branch_name")
+            branch_rule_type = issue_data.get("branch_rule_type")
+            branch_includes = issue_data.get("branch_includes", [])
+            branch_excludes = issue_data.get("branch_excludes", [])
+
+            if branch_name and branch_rule_type and (branch_includes or branch_excludes):
+                # Create ruleset from branch protection
+                ruleset = create_branch_protection_ruleset(
+                    branch_name, branch_rule_type, branch_includes, branch_excludes, issue_data
+                )
+
+                # Add to existing rulesets or create new array
+                if "rulesets" not in config:
+                    config["rulesets"] = []
+
+                # Check if this ruleset already exists and replace it, or add as new
+                existing_idx = next((i for i, r in enumerate(config["rulesets"]) if r.get("name") == branch_name), None)
+                if existing_idx is not None:
+                    config["rulesets"][existing_idx] = ruleset
+                    logger.info(f"Replacing existing ruleset: {branch_name}")
+                else:
+                    config["rulesets"].append(ruleset)
+                    logger.info(f"Adding new ruleset: {branch_name}")
+        # Only apply custom rulesets if strategy is "custom"
+        config = update_rulesets(config, issue_data)
+    elif "branch_name" in issue_data and issue_data["branch_name"]:
+        # Allow custom ruleset updates or removals regardless of strategy for update/remove actions
+        if issue_data.get("action") in ("update", "remove"):
+            config = update_rulesets(config, issue_data)
+
+    return config
 
 
 def remove_repository(
